@@ -202,12 +202,16 @@ export async function applyPathOp(
   return invoke("apply_path_op", { index, pathIndex, op, value });
 }
 
+export interface ObjectMove {
+  index: number;
+  dx: number;
+  dy: number;
+}
+
 export async function translateObjects(
-  indices: number[],
-  dx: number,
-  dy: number,
+  moves: ObjectMove[],
 ): Promise<DocumentSnapshot> {
-  return invoke("translate_objects", { indices, dx, dy });
+  return invoke("translate_objects", { moves });
 }
 
 export async function deleteObjects(

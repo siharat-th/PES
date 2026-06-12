@@ -22,13 +22,13 @@ export default function ObjectsLayer() {
   const selectedIndices = useDocumentStore((s) => s.selectedIndices);
   const select = useDocumentStore((s) => s.select);
   const commitTransform = useDocumentStore((s) => s.commitTransform);
-  const translateSelected = useDocumentStore((s) => s.translateSelected);
+  const translateObjects = useDocumentStore((s) => s.translateObjects);
 
   const cacheRef = useRef<Map<number, CachedImage>>(new Map());
   const [, forceRender] = useState(0);
   const trRef = useRef<Konva.Transformer>(null);
   const nodeRefs = useRef<Map<number, Konva.Image>>(new Map());
-  const dragStart = useRef<Map<number, { x: number; y: number }> | null>(null);
+  const dragIds = useRef<number[]>([]);
 
   const objects = doc?.objects ?? [];
 
@@ -81,40 +81,34 @@ export default function ObjectsLayer() {
     void commitTransform(obj.index, dx, dy, sx, sy, rot);
   };
 
+  // The multi-node Transformer group-drags peers natively, so we only need
+  // to record who participates and commit per-node absolute deltas at the end.
   const handleDragStart = (obj: ObjectSnapshot) => {
-    // dragging an unselected object selects it alone
     if (!selectedIndices.includes(obj.index)) select(obj.index);
-    const positions = new Map<number, { x: number; y: number }>();
-    const ids = selectedIndices.includes(obj.index)
-      ? selectedIndices
+    dragIds.current = selectedIndices.includes(obj.index)
+      ? [...selectedIndices]
       : [obj.index];
-    for (const i of ids) {
-      const n = nodeRefs.current.get(i);
-      if (n) positions.set(i, { x: n.x(), y: n.y() });
-    }
-    dragStart.current = positions;
-  };
-
-  const handleDragMove = (obj: ObjectSnapshot, node: Konva.Image) => {
-    const start = dragStart.current;
-    if (!start || start.size <= 1) return;
-    const s0 = start.get(obj.index);
-    if (!s0) return;
-    const dx = node.x() - s0.x;
-    const dy = node.y() - s0.y;
-    for (const [i, p] of start) {
-      if (i === obj.index) continue;
-      nodeRefs.current.get(i)?.position({ x: p.x + dx, y: p.y + dy });
-    }
   };
 
   const handleDragEnd = (obj: ObjectSnapshot, node: Konva.Image) => {
-    const start = dragStart.current;
-    dragStart.current = null;
-    if (start && start.size > 1) {
-      const s0 = start.get(obj.index);
-      if (!s0) return;
-      void translateSelected(node.x() - s0.x, node.y() - s0.y);
+    const ids = dragIds.current;
+    dragIds.current = [];
+    if (ids.length > 1) {
+      // read each node's real position vs its snapshot center — robust even
+      // if Konva moved peers (Transformer group drag) or anything desynced
+      const moves = ids.flatMap((i) => {
+        const o = objects.find((x) => x.index === i);
+        const n = nodeRefs.current.get(i);
+        if (!o || !n) return [];
+        return [
+          {
+            index: i,
+            dx: n.x() - (o.x + o.width / 2),
+            dy: n.y() - (o.y + o.height / 2),
+          },
+        ];
+      });
+      void translateObjects(moves);
     } else {
       commitNode(obj, node);
     }
@@ -154,7 +148,6 @@ export default function ObjectsLayer() {
               onClick={(e) => select(obj.index, e.evt.shiftKey)}
               onTap={() => select(obj.index)}
               onDragStart={() => handleDragStart(obj)}
-              onDragMove={(e) => handleDragMove(obj, e.target as Konva.Image)}
               onDragEnd={(e) => handleDragEnd(obj, e.target as Konva.Image)}
               onTransformEnd={(e) => commitNode(obj, e.target as Konva.Image)}
             />

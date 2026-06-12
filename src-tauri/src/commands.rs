@@ -358,17 +358,20 @@ pub async fn apply_path_op(
     .await?
 }
 
-/// Move several objects by the same delta as ONE undo step (multi-select drag).
+#[derive(serde::Deserialize)]
+pub struct ObjectMove {
+    pub index: i32,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+/// Move several objects (per-object deltas) as ONE undo step (multi-select drag).
 #[tauri::command]
-pub async fn translate_objects(
-    indices: Vec<i32>,
-    dx: f32,
-    dy: f32,
-) -> Result<DocumentSnapshot, String> {
+pub async fn translate_objects(moves: Vec<ObjectMove>) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
         history::run_undoable(|eng| {
-            for &i in &indices {
-                eng.translate_object(i, dx, dy);
+            for m in &moves {
+                eng.translate_object(m.index, m.dx, m.dy);
             }
         });
         document_snapshot()

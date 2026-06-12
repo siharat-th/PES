@@ -24,7 +24,7 @@ interface DocumentState {
     sy: number,
     rotateDegree: number,
   ) => Promise<void>;
-  translateSelected: (dx: number, dy: number) => Promise<void>;
+  translateObjects: (moves: engine.ObjectMove[]) => Promise<void>;
   deleteSelected: () => Promise<void>;
   duplicateSelected: () => Promise<void>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
@@ -100,10 +100,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         engine.transformObject(index, dx, dy, sx, sy, rotateDegree),
       ),
 
-    translateSelected: async (dx, dy) => {
-      const { selectedIndices } = get();
-      if (!selectedIndices.length) return;
-      await run(true, () => engine.translateObjects(selectedIndices, dx, dy));
+    translateObjects: async (moves) => {
+      if (!moves.length) return;
+      await run(true, () => engine.translateObjects(moves));
     },
 
     deleteSelected: async () => {
