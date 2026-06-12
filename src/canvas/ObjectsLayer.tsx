@@ -91,8 +91,11 @@ export default function ObjectsLayer() {
   };
 
   const handleDragEnd = (obj: ObjectSnapshot, node: Konva.Image) => {
+    // Group drag fires dragend on EVERY attached node — only the first one
+    // commits the gesture; later ones must not re-translate (double-move bug).
     const ids = dragIds.current;
     dragIds.current = [];
+    if (ids.length === 0) return;
     if (ids.length > 1) {
       // read each node's real position vs its snapshot center — robust even
       // if Konva moved peers (Transformer group drag) or anything desynced
