@@ -99,6 +99,7 @@ mod ffi {
 
         fn get_parameter_json(obj_index: i32) -> String;
         fn update_ppef_text(obj_index: i32) -> bool;
+        fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
         fn set_param_str(obj_index: i32, key: &str, value: &str) -> bool;
@@ -252,6 +253,10 @@ impl Engine<'_> {
     /// No-op (returns false) for other object types.
     pub fn update_ppef_text(&self, obj_index: i32) -> bool {
         ffi::update_ppef_text(obj_index)
+    }
+
+    pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {
+        ffi::path_op(obj_index, path_index, op, value)
     }
 
     pub fn set_param_num(&self, obj_index: i32, key: &str, value: f32) -> bool {

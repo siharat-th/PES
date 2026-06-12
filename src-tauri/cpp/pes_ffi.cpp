@@ -6,7 +6,12 @@
 #include "pesBuffer.hpp"
 #include "pesColor.hpp"
 #include "pesEffect.hpp"
+#include "pesPathUtility.hpp"
 #include "json.hpp"
+
+#include "include/core/SkPaint.h"
+#include "include/core/SkPathUtils.h"
+#include "include/pathops/SkPathOps.h"
 
 #include "PesPPEFUtils.hpp" // apps2/1080_PES5Template/src/Utils (native SQLiteCpp)
 
@@ -554,6 +559,162 @@ bool update_ppef_text(int32_t obj_index) {
     pesVec2f newCenter = data->getBoundingBox().getCenter();
     data->translate(oldCenter.x - newCenter.x, oldCenter.y - newCenter.y);
     return true;
+}
+
+namespace {
+
+// Port of PES5Template::SkiaPathStroke (bindings line ~690)
+SkPath skiaPathStroke(const SkPath& skPath, float value) {
+    SkPath newPath;
+    SkPaint paint;
+    paint.setStyle(SkPaint::Style::kStroke_Style);
+    paint.setStrokeWidth(value * 2);
+    paint.setStrokeCap(SkPaint::Cap::kButt_Cap);
+    paint.setStrokeJoin(SkPaint::Join::kMiter_Join);
+    skpathutils::FillPathWithPaint(skPath, paint, &newPath);
+    return newPath;
+}
+
+// Replace paths[idx] with a new SkPath, preserving style attributes.
+void replacePath(pesData* pes, int idx, const SkPath& skPath) {
+    pesPath& tpath = pes->paths[idx];
+    bool isFill = tpath.isFill();
+    float strokeWidth = tpath.getStrokeWidth();
+    pesColor strokeColor = tpath.getStrokeColor();
+    pesColor fillColor = tpath.getFillColor();
+    std::string path_id = tpath.path_id;
+    std::string group_id = tpath.group_id;
+
+    pesPath path = toPes(skPath);
+    path.setStrokeColor(strokeColor);
+    path.setFillColor(fillColor);
+    path.setStrokeWidth(strokeWidth);
+    path.setFilled(isFill);
+    path.path_id = path_id;
+    path.group_id = group_id;
+
+    pes->paths[idx].clear();
+    pes->paths[idx] = path;
+}
+
+void reapplyStitches(int32_t objIndex, pesData* pes) {
+    if (hasStitch(objIndex)) {
+        pes->applyFill();
+        pes->applyStroke();
+    }
+}
+
+} // namespace
+
+// Path operations — ported from PES5Template_bindings.cpp (lines 508-880).
+bool path_op(int32_t obj_index, int32_t path_index, rust::Str op_, float value) {
+    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    int n = (int)pes->paths.size();
+    std::string op(op_);
+
+    if (op == "up") {
+        if (path_index < 1 || path_index >= n) return false;
+        std::swap(pes->paths[path_index], pes->paths[path_index - 1]);
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "down") {
+        if (path_index < 0 || path_index >= n - 1) return false;
+        std::swap(pes->paths[path_index], pes->paths[path_index + 1]);
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "inset" || op == "outset") {
+        if (path_index < 0 || path_index >= n) return false;
+        SkPath skPath = toSk(pes->paths[path_index]);
+        SkPath outlinePath = skiaPathStroke(skPath, value);
+        Simplify(outlinePath, &outlinePath);
+        Op(outlinePath, skPath,
+           op == "inset" ? SkPathOp::kReverseDifference_SkPathOp
+                         : SkPathOp::kDifference_SkPathOp,
+           &outlinePath);
+        replacePath(pes, path_index, outlinePath);
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "simplify") {
+        if (path_index < 0 || path_index >= n) return false;
+        pesPath& tpath = pes->paths[path_index];
+        std::vector<pesPath> subpath = tpath.getSubPath();
+        SkPath skPath = toSk(tpath);
+        if (!subpath.empty())
+            skPath = toSk(subpath[0]);
+        Simplify(skPath, &skPath);
+        replacePath(pes, path_index, skPath);
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "unite_next") {
+        if (path_index < 0 || path_index >= n - 1) return false;
+        SkPath path1 = toSk(pes->paths[path_index]);
+        SkPath path2 = toSk(pes->paths[path_index + 1]);
+        Op(path1, path2, SkPathOp::kUnion_SkPathOp, &path1);
+        replacePath(pes, path_index, path1);
+        pes->paths[path_index + 1].clear();
+        pes->paths.erase(pes->paths.begin() + (path_index + 1));
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "separate") {
+        if (path_index < 0 || path_index >= n) return false;
+        pesPath& tpath = pes->paths[path_index];
+        bool isFill = tpath.isFill();
+        float strokeWidth = tpath.getStrokeWidth();
+        pesColor strokeColor = tpath.getStrokeColor();
+        pesColor fillColor = tpath.getFillColor();
+        std::vector<pesPath> subpaths = tpath.getSubPath();
+        for (size_t i = 0; i < subpaths.size(); ++i) {
+            pesPath path = subpaths[i];
+            path.setStrokeColor(strokeColor);
+            path.setFillColor(fillColor);
+            path.setStrokeWidth(strokeWidth);
+            path.setFilled(isFill);
+            pes->paths.insert(pes->paths.begin() + (path_index + i + 1), path);
+        }
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    if (op == "erase_under") {
+        if (path_index < 1 || path_index >= n) return false;
+        SkPath eraserPath = toSk(pes->paths[path_index]);
+        for (int ip = 0; ip < path_index; ++ip) {
+            pesPath& tpath = pes->paths[ip];
+            if (!tpath.bVisible)
+                continue;
+            bool isFill = tpath.isFill();
+            bool isStroke = tpath.isStroke();
+            pesColor strokeColor = tpath.getStrokeColor();
+            SkPath targetPath = toSk(tpath);
+            if (isStroke && !isFill) {
+                SkPath outlinePath = skiaPathStroke(
+                    targetPath,
+                    tpath.getStrokeWidth() / 2 * pes->parameter.ppefScaleX);
+                Op(outlinePath, eraserPath, SkPathOp::kDifference_SkPathOp,
+                   &targetPath);
+                pesPath path = toPes(targetPath);
+                path.setStrokeColor(strokeColor);
+                path.setFillColor(strokeColor);
+                path.setStrokeWidth(0);
+                path.setFilled(true);
+                pes->paths[ip].clear();
+                pes->paths[ip] = path;
+            } else {
+                Op(eraserPath, targetPath, SkPathOp::kReverseDifference_SkPathOp,
+                   &targetPath);
+                replacePath(pes, ip, targetPath);
+            }
+        }
+        reapplyStitches(obj_index, pes);
+        return true;
+    }
+    return false;
 }
 
 bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {

@@ -81,14 +81,19 @@ export default function PropertiesPanel() {
   const [param, setParam] = useState<ObjectParameter | null>(null);
   const [blocks, setBlocks] = useState<ColorBlockInfo[]>([]);
   const [palette, setPalette] = useState<BrotherColor[]>([]);
+  const [ppefFonts, setPpefFonts] = useState<string[]>([]);
   const [activeBlock, setActiveBlock] = useState(-1);
   const [blockPickerOpen, setBlockPickerOpen] = useState(false);
   const [textDraft, setTextDraft] = useState("");
+  const [pathCount, setPathCount] = useState(0);
+  const [activePath, setActivePath] = useState(0);
+  const [insetMm, setInsetMm] = useState(1);
 
   const obj = doc?.objects.find((o) => o.index === selectedIndex);
 
   useEffect(() => {
     void engine.getBrotherPalette().then(setPalette);
+    void engine.listPpefFonts().then(setPpefFonts);
   }, []);
 
   useEffect(() => {
@@ -103,11 +108,14 @@ export default function PropertiesPanel() {
     void Promise.all([
       engine.getParameter(selectedIndex),
       engine.getColorBlocks(selectedIndex),
-    ]).then(([p, b]) => {
+      engine.getObjectPaths(selectedIndex),
+    ]).then(([p, b, paths]) => {
       if (cancelled) return;
       setParam(p);
       setBlocks(b);
       setTextDraft(p.text);
+      setPathCount(paths.length);
+      setActivePath((i) => Math.min(i, Math.max(paths.length - 1, 0)));
     });
     return () => {
       cancelled = true;
@@ -162,6 +170,15 @@ export default function PropertiesPanel() {
               Update
             </button>
           </div>
+          {obj.object_type === "PPEF Text" && ppefFonts.length > 0 && (
+            <Row label="Font">
+              <SelectField
+                value={param.fontName || "Thai001"}
+                options={ppefFonts.map((f) => ({ value: f, label: f }))}
+                onChange={(v) => set("font", v)}
+              />
+            </Row>
+          )}
           <Row label="Font size">
             <SelectField
               value={param.fontSize}
@@ -409,6 +426,96 @@ export default function PropertiesPanel() {
             onPick={(c) => set("strokeColor", c.index)}
           />
         </Row>
+      )}
+
+      {/* Path operations (Prop_PathOpsHandler) — geometry editing per path */}
+      {obj.object_type !== "Stitch" && pathCount > 0 && (
+        <>
+          <Section title="Path operations" />
+          <Row label={`Path (${pathCount})`}>
+            <SelectField
+              value={activePath}
+              options={Array.from({ length: pathCount }, (_, i) => ({
+                value: i,
+                label: `#${i + 1}`,
+              }))}
+              onChange={setActivePath}
+            />
+          </Row>
+          <Row label="Inset / Outset (mm)">
+            <NumberField
+              value={insetMm}
+              min={0.1}
+              max={20}
+              step={0.1}
+              onCommit={setInsetMm}
+            />
+          </Row>
+          <div className="grid grid-cols-2 gap-1.5 px-3 py-1.5">
+            <button
+              className="btn text-xs"
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "inset", insetMm * 10),
+                )
+              }
+            >
+              Inset
+            </button>
+            <button
+              className="btn text-xs"
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "outset", insetMm * 10),
+                )
+              }
+            >
+              Outset
+            </button>
+            <button
+              className="btn text-xs"
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "simplify"),
+                )
+              }
+            >
+              Simplify
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={activePath >= pathCount - 1}
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "unite_next"),
+                )
+              }
+            >
+              Unite Next
+            </button>
+            <button
+              className="btn text-xs"
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "separate"),
+                )
+              }
+            >
+              Separate
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={activePath < 1}
+              onClick={() =>
+                void applyPathEdit(() =>
+                  engine.applyPathOp(selectedIndex, activePath, "erase_under"),
+                )
+              }
+            >
+              Erase Under
+            </button>
+          </div>
+        </>
       )}
 
       {/* Stitch panel: flip + thread colors (prop_pes.ejs) */}

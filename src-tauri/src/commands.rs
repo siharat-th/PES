@@ -315,6 +315,83 @@ pub async fn set_parameter(
     .await?
 }
 
+/// Resource dir, set once at startup (lib.rs) — used for font listings.
+pub static RESOURCE_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+#[tauri::command]
+pub async fn list_ppef_fonts() -> Result<Vec<String>, String> {
+    run_blocking(|| {
+        let dir = RESOURCE_DIR
+            .get()
+            .ok_or("resource dir not initialized")?
+            .join("PPEF");
+        let mut fonts: Vec<String> = std::fs::read_dir(&dir)
+            .map_err(|e| format!("read {dir:?}: {e}"))?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let p = e.path();
+                (p.extension().and_then(|x| x.to_str()) == Some("ppef"))
+                    .then(|| p.file_stem()?.to_str().map(String::from))
+                    .flatten()
+            })
+            .collect();
+        fonts.sort();
+        Ok(fonts)
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn apply_path_op(
+    index: i32,
+    path_index: i32,
+    op: String,
+    value: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        let ok = history::run_undoable(|eng| eng.path_op(index, path_index, &op, value));
+        if !ok {
+            return Err(format!("path op ล้มเหลว: {op}"));
+        }
+        Ok(document_snapshot())
+    })
+    .await?
+}
+
+/// Move several objects by the same delta as ONE undo step (multi-select drag).
+#[tauri::command]
+pub async fn translate_objects(
+    indices: Vec<i32>,
+    dx: f32,
+    dy: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            for &i in &indices {
+                eng.translate_object(i, dx, dy);
+            }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Delete several objects as ONE undo step (highest index first).
+#[tauri::command]
+pub async fn delete_objects(mut indices: Vec<i32>) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+        indices.dedup();
+        history::run_undoable(|eng| {
+            for &i in &indices {
+                eng.delete_object(i);
+            }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn undo() -> Result<DocumentSnapshot, String> {
     run_blocking(|| {

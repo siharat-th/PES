@@ -15,7 +15,7 @@ import { useDocumentStore } from "../state/documentStore";
 export default function LayerPanel() {
   const doc = useDocumentStore((s) => s.doc);
   const imageVersion = useDocumentStore((s) => s.imageVersion);
-  const selectedIndex = useDocumentStore((s) => s.selectedIndex);
+  const selectedIndices = useDocumentStore((s) => s.selectedIndices);
   const select = useDocumentStore((s) => s.select);
   const setVisible = useDocumentStore((s) => s.setVisible);
   const setLocked = useDocumentStore((s) => s.setLocked);
@@ -37,11 +37,11 @@ export default function LayerPanel() {
           <div
             key={`${obj.index}`}
             className={`flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-2 py-1.5 ${
-              obj.index === selectedIndex
+              selectedIndices.includes(obj.index)
                 ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
                 : "hover:bg-neutral-50"
             }`}
-            onClick={() => select(obj.index)}
+            onClick={(e) => select(obj.index, e.shiftKey)}
           >
             <LayerThumb index={obj.index} version={imageVersion} />
             <div className="min-w-0 flex-1">

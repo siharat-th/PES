@@ -179,6 +179,43 @@ export async function setParameter(
   return invoke("set_parameter", { index, key, value });
 }
 
+export async function listPpefFonts(): Promise<string[]> {
+  return invoke("list_ppef_fonts");
+}
+
+export type PathOp =
+  | "inset"
+  | "outset"
+  | "simplify"
+  | "unite_next"
+  | "separate"
+  | "erase_under"
+  | "up"
+  | "down";
+
+export async function applyPathOp(
+  index: number,
+  pathIndex: number,
+  op: PathOp,
+  value = 0,
+): Promise<DocumentSnapshot> {
+  return invoke("apply_path_op", { index, pathIndex, op, value });
+}
+
+export async function translateObjects(
+  indices: number[],
+  dx: number,
+  dy: number,
+): Promise<DocumentSnapshot> {
+  return invoke("translate_objects", { indices, dx, dy });
+}
+
+export async function deleteObjects(
+  indices: number[],
+): Promise<DocumentSnapshot> {
+  return invoke("delete_objects", { indices });
+}
+
 export async function undo(): Promise<DocumentSnapshot> {
   return invoke("undo");
 }

@@ -21,6 +21,7 @@ pub fn run() {
                 .unwrap_or_else(|| {
                     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
                 });
+            let _ = commands::RESOURCE_DIR.set(resource_dir.clone());
             engine::with_engine(|eng| {
                 eng.set_resource_path(resource_dir.to_string_lossy().as_ref());
                 eng.new_document();
@@ -52,6 +53,10 @@ pub fn run() {
             commands::flip_object,
             commands::get_parameter,
             commands::set_parameter,
+            commands::list_ppef_fonts,
+            commands::apply_path_op,
+            commands::translate_objects,
+            commands::delete_objects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

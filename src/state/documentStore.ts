@@ -6,6 +6,8 @@ interface DocumentState {
   doc: DocumentSnapshot | null;
   /** bumped whenever object pixels may have changed → ObjectsLayer refetches */
   imageVersion: number;
+  /** multi-selection; last entry is the primary (shown in Properties) */
+  selectedIndices: number[];
   selectedIndex: number;
   busy: boolean;
   error: string | null;
@@ -13,7 +15,7 @@ interface DocumentState {
   newDocument: (wMm?: number, hMm?: number) => Promise<void>;
   openFile: (path: string) => Promise<void>;
   refresh: () => Promise<void>;
-  select: (index: number) => void;
+  select: (index: number, additive?: boolean) => void;
   commitTransform: (
     index: number,
     dx: number,
@@ -22,6 +24,7 @@ interface DocumentState {
     sy: number,
     rotateDegree: number,
   ) => Promise<void>;
+  translateSelected: (dx: number, dy: number) => Promise<void>;
   deleteSelected: () => Promise<void>;
   duplicateSelected: () => Promise<void>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
@@ -36,12 +39,15 @@ interface DocumentState {
 
 export const useDocumentStore = create<DocumentState>((set, get) => {
   const applyDoc = (doc: DocumentSnapshot, invalidateImages: boolean) =>
-    set((s) => ({
-      doc,
-      imageVersion: invalidateImages ? s.imageVersion + 1 : s.imageVersion,
-      selectedIndex:
-        s.selectedIndex < doc.objects.length ? s.selectedIndex : -1,
-    }));
+    set((s) => {
+      const valid = s.selectedIndices.filter((i) => i < doc.objects.length);
+      return {
+        doc,
+        imageVersion: invalidateImages ? s.imageVersion + 1 : s.imageVersion,
+        selectedIndices: valid,
+        selectedIndex: valid.length ? valid[valid.length - 1] : -1,
+      };
+    });
 
   const run = async (
     invalidateImages: boolean,
@@ -60,6 +66,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
   return {
     doc: null,
     imageVersion: 0,
+    selectedIndices: [],
     selectedIndex: -1,
     busy: false,
     error: null,
@@ -71,18 +78,39 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     refresh: () => run(false, () => engine.getDocument()),
 
-    select: (index) => set({ selectedIndex: index }),
+    select: (index, additive = false) =>
+      set((s) => {
+        if (index < 0) return { selectedIndices: [], selectedIndex: -1 };
+        let list: number[];
+        if (additive) {
+          list = s.selectedIndices.includes(index)
+            ? s.selectedIndices.filter((i) => i !== index)
+            : [...s.selectedIndices, index];
+        } else {
+          list = [index];
+        }
+        return {
+          selectedIndices: list,
+          selectedIndex: list.length ? list[list.length - 1] : -1,
+        };
+      }),
 
     commitTransform: (index, dx, dy, sx, sy, rotateDegree) =>
       run(true, () =>
         engine.transformObject(index, dx, dy, sx, sy, rotateDegree),
       ),
 
+    translateSelected: async (dx, dy) => {
+      const { selectedIndices } = get();
+      if (!selectedIndices.length) return;
+      await run(true, () => engine.translateObjects(selectedIndices, dx, dy));
+    },
+
     deleteSelected: async () => {
-      const { selectedIndex } = get();
-      if (selectedIndex < 0) return;
-      await run(true, () => engine.deleteObject(selectedIndex));
-      set({ selectedIndex: -1 });
+      const { selectedIndices } = get();
+      if (!selectedIndices.length) return;
+      await run(true, () => engine.deleteObjects(selectedIndices));
+      set({ selectedIndices: [], selectedIndex: -1 });
     },
 
     duplicateSelected: async () => {
@@ -99,10 +127,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     reorder: async (index, dir) => {
       await run(true, () => engine.reorderObject(index, dir));
-      // follow the moved object's new position
       const count = get().doc?.objects.length ?? 0;
       const next = Math.min(Math.max(index + dir, 0), Math.max(count - 1, 0));
-      set({ selectedIndex: next });
+      set({ selectedIndices: [next], selectedIndex: next });
     },
 
     undo: () => run(true, () => engine.undo()),
