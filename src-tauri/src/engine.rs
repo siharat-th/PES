@@ -429,6 +429,27 @@ mod tests {
     }
 
     #[test]
+    fn stitch_data_has_runs() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+            let _ = idx;
+            let d = eng.stitch_data(-1);
+            // sanity: real stitches exist, split into many short runs
+            assert!(d.total_points > 100, "too few stitches: {}", d.total_points);
+            assert!(!d.segments.is_empty(), "no stitch segments");
+            let pts: u32 = d.segments.iter().map(|s| s.count).sum();
+            assert!(pts <= d.total_points);
+            let avg = pts as f32 / d.segments.len() as f32;
+            eprintln!(
+                "stitch_data: {} pts, {} segments, avg {:.1} pts/seg",
+                d.total_points,
+                d.segments.len(),
+                avg
+            );
+        });
+    }
+
+    #[test]
     fn ppef_border_toggle() {
         with_engine(|eng| {
             let idx = load_ppef_fixture(eng);
