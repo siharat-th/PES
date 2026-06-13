@@ -51,6 +51,7 @@ void flip_object(int32_t obj_index, bool horizontal);
 
 rust::String get_parameter_json(int32_t obj_index);
 bool update_ppef_text(int32_t obj_index);
+bool update_ttf_text(int32_t obj_index);
 
 // op: inset | outset | simplify | unite_next | separate | erase_under | up | down
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op, float value);

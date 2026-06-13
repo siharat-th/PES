@@ -183,6 +183,10 @@ export async function listPpefFonts(): Promise<string[]> {
   return invoke("list_ppef_fonts");
 }
 
+export async function listTtfFonts(): Promise<string[]> {
+  return invoke("list_ttf_fonts");
+}
+
 export type PathOp =
   | "inset"
   | "outset"

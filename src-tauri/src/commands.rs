@@ -303,7 +303,9 @@ pub async fn set_parameter(
             };
             if ok {
                 // text-type objects regenerate from parameters (no-op otherwise)
-                eng.update_ppef_text(index);
+                if !eng.update_ppef_text(index) {
+                    eng.update_ttf_text(index);
+                }
             }
             ok
         });
@@ -318,27 +320,33 @@ pub async fn set_parameter(
 /// Resource dir, set once at startup (lib.rs) — used for font listings.
 pub static RESOURCE_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
+fn list_fonts(subdir: &str, ext: &str) -> Result<Vec<String>, String> {
+    let dir = RESOURCE_DIR
+        .get()
+        .ok_or("resource dir not initialized")?
+        .join(subdir);
+    let mut fonts: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("read {dir:?}: {e}"))?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            (p.extension().and_then(|x| x.to_str()) == Some(ext))
+                .then(|| p.file_stem()?.to_str().map(String::from))
+                .flatten()
+        })
+        .collect();
+    fonts.sort();
+    Ok(fonts)
+}
+
 #[tauri::command]
 pub async fn list_ppef_fonts() -> Result<Vec<String>, String> {
-    run_blocking(|| {
-        let dir = RESOURCE_DIR
-            .get()
-            .ok_or("resource dir not initialized")?
-            .join("PPEF");
-        let mut fonts: Vec<String> = std::fs::read_dir(&dir)
-            .map_err(|e| format!("read {dir:?}: {e}"))?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let p = e.path();
-                (p.extension().and_then(|x| x.to_str()) == Some("ppef"))
-                    .then(|| p.file_stem()?.to_str().map(String::from))
-                    .flatten()
-            })
-            .collect();
-        fonts.sort();
-        Ok(fonts)
-    })
-    .await?
+    run_blocking(|| list_fonts("PPEF", "ppef")).await?
+}
+
+#[tauri::command]
+pub async fn list_ttf_fonts() -> Result<Vec<String>, String> {
+    run_blocking(|| list_fonts("TTF", "ttf")).await?
 }
 
 #[tauri::command]

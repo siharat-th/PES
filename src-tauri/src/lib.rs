@@ -54,6 +54,7 @@ pub fn run() {
             commands::get_parameter,
             commands::set_parameter,
             commands::list_ppef_fonts,
+            commands::list_ttf_fonts,
             commands::apply_path_op,
             commands::translate_objects,
             commands::delete_objects,

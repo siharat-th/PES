@@ -91,9 +91,12 @@ export default function PropertiesPanel() {
 
   const obj = doc?.objects.find((o) => o.index === selectedIndex);
 
+  const [ttfFonts, setTtfFonts] = useState<string[]>([]);
+
   useEffect(() => {
     void engine.getBrotherPalette().then(setPalette);
     void engine.listPpefFonts().then(setPpefFonts);
+    void engine.listTtfFonts().then(setTtfFonts);
   }, []);
 
   useEffect(() => {
@@ -175,6 +178,21 @@ export default function PropertiesPanel() {
               <SelectField
                 value={param.fontName || "Thai001"}
                 options={ppefFonts.map((f) => ({ value: f, label: f }))}
+                onChange={(v) => set("font", v)}
+              />
+            </Row>
+          )}
+          {obj.object_type === "TTF Text" && ttfFonts.length > 0 && (
+            <Row label="Font">
+              <SelectField
+                value={param.fontName}
+                options={[
+                  // current font may be a legacy display name not in the list
+                  ...(ttfFonts.includes(param.fontName)
+                    ? []
+                    : [{ value: param.fontName, label: param.fontName }]),
+                  ...ttfFonts.map((f) => ({ value: f, label: f })),
+                ]}
                 onChange={(v) => set("font", v)}
               />
             </Row>

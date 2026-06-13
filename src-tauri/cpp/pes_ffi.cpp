@@ -9,9 +9,12 @@
 #include "pesPathUtility.hpp"
 #include "json.hpp"
 
+#include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathUtils.h"
+#include "include/core/SkTypeface.h"
 #include "include/pathops/SkPathOps.h"
+#include "include/utils/SkTextUtils.h"
 
 #include "PesPPEFUtils.hpp" // apps2/1080_PES5Template/src/Utils (native SQLiteCpp)
 
@@ -73,6 +76,7 @@ std::string objectTypeToString(int type) {
 
 void SetResourcePath(const char* path); // pes_resources.cpp
 SkString GetResourcePath(const char* resource);
+sk_sp<SkData> GetResourceAsData(const char* resource);
 
 namespace pesffi {
 
@@ -605,6 +609,75 @@ void reapplyStitches(int32_t objIndex, pesData* pes) {
 }
 
 } // namespace
+
+// Rebuild a TTF text object's path from its parameters — port of
+// PES5_ReplaceTTFText (PES5Command.cpp:2081-2136), loading the typeface from
+// bundled resources (TTF/<fontName>.ttf) instead of the sk_ui font combobox.
+bool update_ttf_text(int32_t obj_index) {
+    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
+        return false;
+    auto data = doc()->getDataObject(obj_index);
+    pesData* pes = data.get();
+    auto& param = pes->parameter;
+    if (param.type != pesData::OBJECT_TYPE_SCALABLE_TTF_TEXT)
+        return false;
+    if (param.text.empty() || pes->paths.empty())
+        return false;
+
+    sk_sp<SkData> fontData =
+        GetResourceAsData(("TTF/" + param.fontName + ".ttf").c_str());
+    if (!fontData)
+        return false; // font file not bundled — leave object untouched
+    sk_sp<SkTypeface> typeface = SkTypeface::MakeFromData(fontData);
+    if (!typeface)
+        return false;
+
+    pesVec2f oldCenter = pes->getBoundingBox().getCenter();
+    std::string str(param.text);
+    SkScalar ptSize = param.fontSize * 10;
+
+    { // normalize so glyph "0" is exactly ptSize tall (old behavior)
+        SkFont font(typeface, ptSize);
+        SkPath path;
+        SkTextUtils::GetPath("0", 1, SkTextEncoding::kUTF8, 0, 0, font, &path);
+        auto h = std::abs(path.getBounds().height());
+        if (h > 0)
+            ptSize = ptSize * (ptSize / h);
+    }
+
+    SkFont font(typeface, ptSize);
+    SkPath path;
+    SkTextUtils::GetPath(str.c_str(), str.length(), SkTextEncoding::kUTF8, 0, 0,
+                         font, &path);
+    pesPath pes_path = toPes(path);
+    pes_path.setFilled(true);
+    pes_path.setStrokeWidth(2);
+    pes_path.setFillColor(pesGetBrotherColor(param.fillColorIndex));
+    pes_path.setStrokeColor(pesGetBrotherColor(param.colorIndex));
+    pes_path.fillRule = pes->paths[0].fillRule;
+    pes->paths.clear();
+    pes->paths.push_back(pes_path);
+
+    if (param.lastFontSize != param.fontSize) {
+        param.lastFontSize = param.fontSize;
+        param.ppefScaleX = param.ppefScaleY = 1.f;
+    }
+    // pesData::scale mutates ppefScaleX/Y cumulatively — backup & rollback
+    float sx = param.ppefScaleX;
+    float sy = param.ppefScaleY;
+    pes->scale(param.ppefScaleX, param.ppefScaleY);
+    param.ppefScaleX = sx;
+    param.ppefScaleY = sy;
+
+    // refresh dynamic stroke types (same trick as the old code)
+    pes->scale(1.f, 1.f);
+    param.ppefScaleX = sx;
+    param.ppefScaleY = sy;
+
+    pesVec2f newCenter = pes->getBoundingBox().getCenter();
+    pes->translate(oldCenter.x - newCenter.x, oldCenter.y - newCenter.y);
+    return true;
+}
 
 // Path operations — ported from PES5Template_bindings.cpp (lines 508-880).
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op_, float value) {

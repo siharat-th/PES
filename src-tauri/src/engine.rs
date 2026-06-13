@@ -99,6 +99,7 @@ mod ffi {
 
         fn get_parameter_json(obj_index: i32) -> String;
         fn update_ppef_text(obj_index: i32) -> bool;
+        fn update_ttf_text(obj_index: i32) -> bool;
         fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
@@ -255,6 +256,11 @@ impl Engine<'_> {
         ffi::update_ppef_text(obj_index)
     }
 
+    /// Rebuild a TTF text object's path from its parameters (no-op otherwise).
+    pub fn update_ttf_text(&self, obj_index: i32) -> bool {
+        ffi::update_ttf_text(obj_index)
+    }
+
     pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {
         ffi::path_op(obj_index, path_index, op, value)
     }
@@ -350,6 +356,51 @@ mod tests {
                 (h2 - h0).abs() / h0 < 0.05,
                 "size restore drifted: {h0} -> {h2}"
             );
+        });
+    }
+
+    #[test]
+    fn ttf_update_regenerates_and_scales() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            let bytes = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../testdata/ttf-text.ppes"
+            ))
+            .expect("missing testdata/ttf-text.ppes");
+            eng.new_document();
+            assert!(eng.load_ppes(&bytes), "loadPPES failed");
+            let idx = (0..eng.object_count())
+                .find(|&i| eng.object_snapshot(i).object_type == "TTF Text")
+                .expect("fixture has no TTF Text object");
+
+            // idempotent re-shape
+            assert!(eng.update_ttf_text(idx), "update_ttf_text failed");
+            let (_, h0) = bbox(eng, idx);
+            for _ in 0..2 {
+                assert!(eng.update_ttf_text(idx));
+                let (_, h) = bbox(eng, idx);
+                assert!((h - h0).abs() / h0 < 0.05, "drifted {h0} -> {h}");
+            }
+
+            // font size doubles height, restore returns
+            let size0 = param_json(eng, idx)["fontSize"].as_f64().unwrap() as f32;
+            eng.set_param_num(idx, "fontSize", size0 * 2.0);
+            assert!(eng.update_ttf_text(idx));
+            let (_, h1) = bbox(eng, idx);
+            let ratio = h1 / h0;
+            assert!((ratio - 2.0).abs() < 0.2, "ratio {ratio} ({h0} -> {h1})");
+            eng.set_param_num(idx, "fontSize", size0);
+            assert!(eng.update_ttf_text(idx));
+            let (_, h2) = bbox(eng, idx);
+            assert!((h2 - h0).abs() / h0 < 0.05, "restore drifted {h0} -> {h2}");
+
+            // text change regenerates (width changes for longer text)
+            let (w0, _) = bbox(eng, idx);
+            eng.set_param_str(idx, "text", "Hello World Wide");
+            assert!(eng.update_ttf_text(idx));
+            let (w1, _) = bbox(eng, idx);
+            assert!(w1 > w0, "longer text should widen bbox: {w0} -> {w1}");
         });
     }
 
