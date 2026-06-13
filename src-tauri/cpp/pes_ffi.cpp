@@ -245,6 +245,61 @@ bool hasStitch(int32_t objIndex) {
 
 } // namespace
 
+StitchData get_stitch_data(int32_t obj_index) {
+    StitchData out;
+    out.total_points = 0;
+    int count = doc()->getObjectCount();
+
+    auto appendObject = [&](int idx) {
+        auto data = doc()->getDataObject(idx);
+        if (!data->parameter.visible)
+            return;
+        pesStitchBlockList blocks;
+        data->getStitchBlockList(blocks);
+        for (auto& block : blocks) {
+            std::string hex = colorToHex(block.color);
+            size_t n = block.polyline.size();
+            // split into runs of normal stitches; jumps break the thread line
+            size_t i = 0;
+            while (i < n) {
+                bool jump = i < block.types.size() && block.types[i] != 0;
+                if (jump) { // jump points still count toward simulator length
+                    out.coords.push_back(block.polyline[(int)i].x);
+                    out.coords.push_back(block.polyline[(int)i].y);
+                    out.total_points += 1;
+                    ++i;
+                    continue;
+                }
+                uint32_t start = (uint32_t)(out.coords.size() / 2);
+                uint32_t segCount = 0;
+                while (i < n &&
+                       !(i < block.types.size() && block.types[i] != 0)) {
+                    out.coords.push_back(block.polyline[(int)i].x);
+                    out.coords.push_back(block.polyline[(int)i].y);
+                    ++segCount;
+                    ++i;
+                }
+                if (segCount > 0) {
+                    StitchSegment seg;
+                    seg.hex = hex;
+                    seg.start = start;
+                    seg.count = segCount;
+                    out.segments.push_back(std::move(seg));
+                    out.total_points += segCount;
+                }
+            }
+        }
+    };
+
+    if (obj_index >= 0 && obj_index < count) {
+        appendObject(obj_index);
+    } else {
+        for (int i = 0; i < count; ++i)
+            appendObject(i);
+    }
+    return out;
+}
+
 int32_t get_path_count(int32_t obj_index) {
     if (obj_index < 0 || obj_index >= doc()->getObjectCount())
         return 0;

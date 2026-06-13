@@ -114,6 +114,35 @@ export async function getColorBlocks(index: number): Promise<ColorBlockInfo[]> {
   return invoke("get_color_blocks", { index });
 }
 
+export interface StitchSegment {
+  hex: string;
+  start: number; // point offset into coords
+  count: number; // number of points
+}
+
+export interface StitchData {
+  segments: StitchSegment[];
+  totalPoints: number;
+  /** flat x,y pairs in engine units (0.1mm) */
+  coords: Float32Array;
+}
+
+export async function getStitchData(index = -1): Promise<StitchData> {
+  const dto = await invoke<{
+    segments: StitchSegment[];
+    total_points: number;
+    coords_b64: string;
+  }>("get_stitch_data", { index });
+  const bin = atob(dto.coords_b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return {
+    segments: dto.segments,
+    totalPoints: dto.total_points,
+    coords: new Float32Array(bytes.buffer),
+  };
+}
+
 export async function setColorBlock(
   index: number,
   blockIndex: number,

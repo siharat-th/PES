@@ -3,9 +3,11 @@ import { Stage } from "react-konva";
 import Konva from "konva";
 import GridLayer from "./GridLayer";
 import ObjectsLayer from "./ObjectsLayer";
+import StitchLayer from "./StitchLayer";
 import { ViewContext } from "./viewContext";
 import { useDocumentStore } from "../state/documentStore";
 import { useViewportStore } from "../state/viewportStore";
+import { useUiStore } from "../state/uiStore";
 import { UNITS_PER_MM } from "../engine/types";
 
 const MIN_ZOOM = 0.05;
@@ -24,6 +26,7 @@ export default function EmbroideryStage() {
 
   const doc = useDocumentStore((s) => s.doc);
   const select = useDocumentStore((s) => s.select);
+  const viewMode = useUiStore((s) => s.viewMode);
   const hoopWMm = doc?.hoop_width_mm ?? 100;
   const hoopHMm = doc?.hoop_height_mm ?? 100;
 
@@ -137,7 +140,7 @@ export default function EmbroideryStage() {
           onMouseLeave={() => (panState.current = null)}
         >
           <GridLayer hoopWMm={hoopWMm} hoopHMm={hoopHMm} />
-          <ObjectsLayer />
+          {viewMode === "design" ? <ObjectsLayer /> : <StitchLayer />}
         </Stage>
       </ViewContext.Provider>
     </div>

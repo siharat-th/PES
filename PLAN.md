@@ -41,6 +41,12 @@ Tauri 2 (macOS + Windows)
 - LayerPanel: thumbnail, type/text, ตา/กุญแจ, ลำดับขึ้นลง
 - Toolbar: New/Open/Export/Duplicate/Delete + error banner; เปิดผ่าน dialog (.ppes/.pes/.svg)
 
+### ✅ เพิ่มเติม (2026-06-12/13)
+- Properties panel แบบ type-switched ครบ (PPEF/TTF/SVG/Stitch/Satin) + undo/redo + drag&drop + multi-select (บทเรียน: Transformer ยิง dragend ทุก node — commit ครั้งเดียวต่อ gesture)
+- **PPEF text editing แบบ native** (PesPPEFUtils + SQLiteCpp + pesEffect 16 แบบ, 136 ฟอนต์) + regression tests (idempotence/fontsize/border)
+- **TTF text editing แบบ native** (SkTypeface::MakeFromData + SkTextUtils::GetPath, 426 ฟอนต์, ต้อง link skshaper+skunicode) + test
+- Path operations (inset/outset/simplify/unite/separate/erase under)
+
 ### ▶ Milestone ถัดไป (Phase 1 ต่อ)
 1. ตรวจ fidelity transform กับแอปเดิม (scale semantics ของ pesData.scale ที่ไม่ scalable, rotate + stitch regen)
 2. Undo/Redo (Rust command stack ตาม PESUndoRedoCommand)

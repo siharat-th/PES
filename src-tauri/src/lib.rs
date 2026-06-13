@@ -33,6 +33,7 @@ pub fn run() {
             commands::open_file,
             commands::get_document,
             commands::get_object_image,
+            commands::get_stitch_data,
             commands::transform_object,
             commands::export_file,
             commands::delete_object,

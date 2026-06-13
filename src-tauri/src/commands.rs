@@ -98,6 +98,74 @@ pub async fn get_object_image(index: i32) -> Result<Response, String> {
     Ok(Response::new(png))
 }
 
+#[derive(Serialize)]
+pub struct StitchSegmentDto {
+    pub hex: String,
+    pub start: u32,
+    pub count: u32,
+}
+
+#[derive(Serialize)]
+pub struct StitchDataDto {
+    pub segments: Vec<StitchSegmentDto>,
+    pub total_points: u32,
+    /// flat x,y pairs in engine units (0.1mm), base64-encoded little-endian f32
+    pub coords_b64: String,
+}
+
+#[tauri::command]
+pub async fn get_stitch_data(index: i32) -> Result<StitchDataDto, String> {
+    run_blocking(move || {
+        let data = with_engine(|eng| eng.stitch_data(index));
+        let mut bytes = Vec::with_capacity(data.coords.len() * 4);
+        for f in &data.coords {
+            bytes.extend_from_slice(&f.to_le_bytes());
+        }
+        StitchDataDto {
+            segments: data
+                .segments
+                .iter()
+                .map(|s| StitchSegmentDto {
+                    hex: s.hex.clone(),
+                    start: s.start,
+                    count: s.count,
+                })
+                .collect(),
+            total_points: data.total_points,
+            coords_b64: base64_encode(&bytes),
+        }
+    })
+    .await
+}
+
+/// Minimal standard base64 (avoids an extra dependency for one call site).
+fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        out.push(T[(n >> 18 & 63) as usize] as char);
+        out.push(T[(n >> 12 & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6 & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 #[tauri::command]
 pub async fn transform_object(
     index: i32,

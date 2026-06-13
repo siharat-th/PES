@@ -11,11 +11,15 @@ import {
   Redo2,
   Maximize,
   X,
+  PenTool,
+  Sparkles,
 } from "lucide-react";
 import EmbroideryStage from "./canvas/EmbroideryStage";
 import Sidebar from "./panels/Sidebar";
+import SimulatorBar from "./panels/SimulatorBar";
 import { useDocumentStore } from "./state/documentStore";
 import { useViewportStore } from "./state/viewportStore";
+import { useUiStore } from "./state/uiStore";
 import * as engine from "./engine/EngineClient";
 import "./App.css";
 
@@ -42,6 +46,8 @@ export default function App() {
   const redo = useDocumentStore((s) => s.redo);
   const zoom = useViewportStore((s) => s.zoom);
   const requestFit = useViewportStore((s) => s.requestFit);
+  const viewMode = useUiStore((s) => s.viewMode);
+  const setViewMode = useUiStore((s) => s.setViewMode);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
@@ -180,6 +186,21 @@ export default function App() {
           icon={<Maximize size={16} />}
           onClick={requestFit}
         />
+        <ToolButton
+          label={viewMode === "design" ? "Stitch View" : "Design View"}
+          icon={
+            viewMode === "design" ? (
+              <Sparkles size={16} />
+            ) : (
+              <PenTool size={16} />
+            )
+          }
+          active={viewMode === "stitch"}
+          disabled={!doc || doc.objects.length === 0}
+          onClick={() =>
+            setViewMode(viewMode === "design" ? "stitch" : "design")
+          }
+        />
 
         {busy && (
           <span className="ml-auto mr-2 animate-pulse text-xs text-blue-500">
@@ -200,8 +221,11 @@ export default function App() {
 
       {/* Workspace */}
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          <EmbroideryStage />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1">
+            <EmbroideryStage />
+          </div>
+          {viewMode === "stitch" && <SimulatorBar />}
         </div>
         <Sidebar />
         {dragOver && (
@@ -241,15 +265,19 @@ function ToolButton({
   icon,
   onClick,
   disabled,
+  active,
 }: {
   label: string;
   icon: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  active?: boolean;
 }) {
   return (
     <button
-      className="flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1 text-[10px] text-neutral-600 hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent"
+      className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1 text-[10px] hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
+        active ? "bg-blue-50 text-blue-600" : "text-neutral-600"
+      }`}
       onClick={onClick}
       disabled={disabled}
       title={label}

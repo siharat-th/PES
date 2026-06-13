@@ -54,6 +54,25 @@ mod ffi {
         stitch_count: i32,
     }
 
+    /// One run of continuous needle stitches (jumps break runs).
+    #[derive(Debug, Clone, Serialize)]
+    struct StitchSegment {
+        hex: String,
+        /// offset (in points = pairs) into the flat coordinate buffer
+        start: u32,
+        /// number of points (x,y pairs) in this segment
+        count: u32,
+    }
+
+    /// Whole-document stitch geometry. `coords` is x,y pairs in engine units
+    /// (0.1mm); segments index into it. Total points = simulator length.
+    #[derive(Debug, Clone)]
+    struct StitchData {
+        segments: Vec<StitchSegment>,
+        coords: Vec<f32>,
+        total_points: u32,
+    }
+
     unsafe extern "C++" {
         include!("pes_ffi.h");
 
@@ -92,6 +111,7 @@ mod ffi {
         fn set_path_stroke_width(obj_index: i32, path_index: i32, width: f32);
         fn get_brother_palette() -> Vec<BrotherColor>;
 
+        fn get_stitch_data(obj_index: i32) -> StitchData;
         fn get_color_blocks(obj_index: i32) -> Vec<ColorBlockInfo>;
         fn set_color_block(obj_index: i32, block_index: i32, brother_index: i32);
         fn swap_color_block(obj_index: i32, block_index: i32, dir: i32) -> bool;
@@ -107,7 +127,7 @@ mod ffi {
     }
 }
 
-pub use ffi::{BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo};
+pub use ffi::{BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, StitchData};
 
 static ENGINE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -232,6 +252,10 @@ impl Engine<'_> {
 
     pub fn color_blocks(&self, obj_index: i32) -> Vec<ColorBlockInfo> {
         ffi::get_color_blocks(obj_index)
+    }
+
+    pub fn stitch_data(&self, obj_index: i32) -> StitchData {
+        ffi::get_stitch_data(obj_index)
     }
 
     pub fn set_color_block(&self, obj_index: i32, block_index: i32, brother_index: i32) {
