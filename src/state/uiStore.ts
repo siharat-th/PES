@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type ViewMode = "design" | "stitch";
+export type ViewMode = "design" | "stitch" | "pathEdit";
 
 interface UiState {
   viewMode: ViewMode;

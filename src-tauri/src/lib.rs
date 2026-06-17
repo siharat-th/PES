@@ -57,6 +57,8 @@ pub fn run() {
             commands::list_ppef_fonts,
             commands::list_ttf_fonts,
             commands::apply_path_op,
+            commands::get_path_nodes,
+            commands::move_path_node,
             commands::translate_objects,
             commands::delete_objects,
         ])

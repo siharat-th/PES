@@ -18,6 +18,7 @@
 
 #include "PesPPEFUtils.hpp" // apps2/1080_PES5Template/src/Utils (native SQLiteCpp)
 
+#include <cmath>
 #include <cstdio>
 #include <memory>
 
@@ -656,11 +657,24 @@ void replacePath(pesData* pes, int idx, const SkPath& skPath) {
     pes->paths[idx] = path;
 }
 
+// Regenerate stitches after a geometry change. The fill regenerator is
+// type-dependent — using applyFill() on PPEF/Monogram text wipes the fill
+// (0 stitches, colors reset). Mirrors PES5_StopPathEditInput.
 void reapplyStitches(int32_t objIndex, pesData* pes) {
-    if (hasStitch(objIndex)) {
-        pes->applyFill();
-        pes->applyStroke();
+    if (!hasStitch(objIndex))
+        return;
+    switch (pes->parameter.type) {
+        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT:
+            pes->applyPPEFFill();
+            break;
+        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT_V2:
+            pes->applyPPEF_V2_Fill();
+            break;
+        default:
+            pes->applyFill();
+            break;
     }
+    pes->applyStroke();
 }
 
 } // namespace
@@ -853,6 +867,75 @@ bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {
     if (k == "text") d->setDataParameterText(obj_index, std::string(value));
     else if (k == "font") d->setDataParameterFont(obj_index, std::string(value));
     else return false;
+    return true;
+}
+
+// --- PathEdit ---------------------------------------------------------------
+// Path command points are stored unrotated; the object's display rotation
+// (parameter.rotateDegree, non-destructive) is applied around the bbox center
+// at render time. We translate node coordinates to/from world space here so
+// the frontend only ever deals with world units (matching the canvas).
+
+rust::Vec<PathNode> get_path_nodes(int32_t obj_index, int32_t path_index) {
+    rust::Vec<PathNode> out;
+    if (!validPath(obj_index, path_index))
+        return out;
+    auto data = doc()->getDataObject(obj_index);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    pesVec2f center = data->getBoundingBox().getCenter();
+    auto toWorld = [&](float x, float y) -> pesVec2f {
+        pesVec2f v(x, y);
+        if (std::abs(angle) > 1e-4f)
+            v.rotate(angle, center);
+        return v;
+    };
+    for (const auto& c : data->paths[path_index].getCommands()) {
+        PathNode n{};
+        n.node_type = (int32_t)c.type;
+        pesVec2f to = toWorld(c.to.x, c.to.y);
+        pesVec2f cp1 = toWorld(c.cp1.x, c.cp1.y);
+        pesVec2f cp2 = toWorld(c.cp2.x, c.cp2.y);
+        n.x = to.x;   n.y = to.y;
+        n.cp1x = cp1.x; n.cp1y = cp1.y;
+        n.cp2x = cp2.x; n.cp2y = cp2.y;
+        out.push_back(n);
+    }
+    return out;
+}
+
+bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
+                    float world_dx, float world_dy) {
+    if (!validPath(obj_index, path_index))
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    auto& cmds = pes->paths[path_index].getCommands();
+    if (node_index < 0 || node_index >= (int32_t)cmds.size())
+        return false;
+
+    // world delta → local delta (undo the object's display rotation)
+    pesVec2f d(world_dx, world_dy);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    if (std::abs(angle) > 1e-4f)
+        d.rotate(-angle); // rotate the vector about the origin
+
+    using Cmd = pesPath::Command;
+    auto& c = cmds[node_index];
+    c.to.x += d.x; c.to.y += d.y;
+    // the curve arriving at this node keeps its shape → move its near handle
+    if (c.type == Cmd::_bezierTo || c.type == Cmd::_quadBezierTo) {
+        c.cp2.x += d.x; c.cp2.y += d.y;
+    }
+    // the curve leaving this node lives on the next command → move its handle
+    if (node_index + 1 < (int32_t)cmds.size()) {
+        auto& nx = cmds[node_index + 1];
+        if (nx.type == Cmd::_bezierTo) {
+            nx.cp1.x += d.x; nx.cp1.y += d.y;
+        } else if (nx.type == Cmd::_quadBezierTo) {
+            nx.cp2.x += d.x; nx.cp2.y += d.y;
+        }
+    }
+    pes->paths[path_index].flagShapeChanged();
+    reapplyStitches(obj_index, pes);
     return true;
 }
 

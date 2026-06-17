@@ -15,7 +15,7 @@ interface CachedImage {
  *  Mirrors the old model: image rendered unrotated by the engine, rotation
  *  applied visually; gestures preview locally and commit on release.
  *  Multi-select: shift-click; dragging any selected node moves the group. */
-export default function ObjectsLayer() {
+export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean }) {
   const view = useView();
   const doc = useDocumentStore((s) => s.doc);
   const imageVersion = useDocumentStore((s) => s.imageVersion);
@@ -147,7 +147,8 @@ export default function ObjectsLayer() {
               rotation={obj.rotate_degree}
               scaleX={1}
               scaleY={1}
-              draggable={!obj.locked}
+              draggable={!obj.locked && !readOnly}
+              listening={!readOnly}
               onClick={(e) => select(obj.index, e.evt.shiftKey)}
               onTap={() => select(obj.index)}
               onDragStart={() => handleDragStart(obj)}
@@ -156,7 +157,7 @@ export default function ObjectsLayer() {
             />
           );
         })}
-      <Transformer
+      {!readOnly && <Transformer
         ref={trRef}
         rotateEnabled
         centeredScaling={false}
@@ -179,7 +180,7 @@ export default function ObjectsLayer() {
         borderStroke="#6464ff"
         rotateAnchorOffset={30}
         ignoreStroke
-      />
+      />}
     </Layer>
   );
 }

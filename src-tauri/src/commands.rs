@@ -1,7 +1,9 @@
 //! Tauri commands — thin async wrappers over the engine.
 //! Engine work runs on blocking threads (stitch ops can be slow).
 
-use crate::engine::{with_engine, BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo};
+use crate::engine::{
+    with_engine, BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode,
+};
 use crate::history;
 use serde::Serialize;
 use tauri::ipc::Response;
@@ -415,6 +417,28 @@ pub async fn list_ppef_fonts() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn list_ttf_fonts() -> Result<Vec<String>, String> {
     run_blocking(|| list_fonts("TTF", "ttf")).await?
+}
+
+#[tauri::command]
+pub async fn get_path_nodes(index: i32, path_index: i32) -> Result<Vec<PathNode>, String> {
+    run_blocking(move || with_engine(|eng| eng.path_nodes(index, path_index))).await
+}
+
+/// Move one path node (anchor + its attached bezier handles) by a world delta,
+/// then regenerate stitches. One undo step per drag.
+#[tauri::command]
+pub async fn move_path_node(
+    index: i32,
+    path_index: i32,
+    node_index: i32,
+    dx: f32,
+    dy: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| eng.move_path_node(index, path_index, node_index, dx, dy));
+        document_snapshot()
+    })
+    .await
 }
 
 #[tauri::command]

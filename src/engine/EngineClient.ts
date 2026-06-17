@@ -4,6 +4,7 @@ import type {
   ColorBlockInfo,
   DocumentSnapshot,
   PathInfo,
+  PathNode,
 } from "./types";
 
 export async function newDocument(
@@ -80,6 +81,25 @@ export async function reorderObject(
 
 export async function getObjectPaths(index: number): Promise<PathInfo[]> {
   return invoke("get_object_paths", { index });
+}
+
+/** Path command nodes (world coords) for PathEdit mode. */
+export async function getPathNodes(
+  index: number,
+  pathIndex: number,
+): Promise<PathNode[]> {
+  return invoke("get_path_nodes", { index, pathIndex });
+}
+
+/** Move one path node by a world-space delta; returns the fresh snapshot. */
+export async function movePathNode(
+  index: number,
+  pathIndex: number,
+  nodeIndex: number,
+  dx: number,
+  dy: number,
+): Promise<DocumentSnapshot> {
+  return invoke("move_path_node", { index, pathIndex, nodeIndex, dx, dy });
 }
 
 export async function getBrotherPalette(): Promise<BrotherColor[]> {

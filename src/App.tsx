@@ -11,7 +11,7 @@ import {
   Redo2,
   Maximize,
   X,
-  PenTool,
+  Spline,
   Sparkles,
 } from "lucide-react";
 import EmbroideryStage from "./canvas/EmbroideryStage";
@@ -187,18 +187,21 @@ export default function App() {
           onClick={requestFit}
         />
         <ToolButton
-          label={viewMode === "design" ? "Stitch View" : "Design View"}
-          icon={
-            viewMode === "design" ? (
-              <Sparkles size={16} />
-            ) : (
-              <PenTool size={16} />
-            )
+          label="Edit Nodes"
+          icon={<Spline size={16} />}
+          active={viewMode === "pathEdit"}
+          disabled={selectedIndex < 0}
+          onClick={() =>
+            setViewMode(viewMode === "pathEdit" ? "design" : "pathEdit")
           }
+        />
+        <ToolButton
+          label="Stitch View"
+          icon={<Sparkles size={16} />}
           active={viewMode === "stitch"}
           disabled={!doc || doc.objects.length === 0}
           onClick={() =>
-            setViewMode(viewMode === "design" ? "stitch" : "design")
+            setViewMode(viewMode === "stitch" ? "design" : "stitch")
           }
         />
 

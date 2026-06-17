@@ -47,3 +47,26 @@ export interface DocumentSnapshot {
   can_undo: boolean;
   can_redo: boolean;
 }
+
+/** pesPath::Command::Type. */
+export const PATH_CMD = {
+  moveTo: 0,
+  lineTo: 1,
+  curveTo: 2,
+  bezierTo: 3,
+  quadBezierTo: 4,
+  arc: 5,
+  arcNegative: 6,
+  close: 7,
+} as const;
+
+/** One editable path command, coordinates in engine units (world space). */
+export interface PathNode {
+  node_type: number;
+  x: number;
+  y: number;
+  cp1x: number;
+  cp1y: number;
+  cp2x: number;
+  cp2y: number;
+}

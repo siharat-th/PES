@@ -73,6 +73,22 @@ mod ffi {
         total_points: u32,
     }
 
+    /// One path command for node editing. Coordinates are WORLD units (the
+    /// object's display rotation is already applied). `node_type` mirrors
+    /// pesPath::Command::Type (0=moveTo,1=lineTo,2=curveTo,3=bezierTo,
+    /// 4=quadBezierTo,5=arc,6=arcNegative,7=close). cp1/cp2 are only
+    /// meaningful for bezier/quad commands.
+    #[derive(Debug, Clone, Serialize)]
+    struct PathNode {
+        node_type: i32,
+        x: f32,
+        y: f32,
+        cp1x: f32,
+        cp1y: f32,
+        cp2x: f32,
+        cp2y: f32,
+    }
+
     unsafe extern "C++" {
         include!("pes_ffi.h");
 
@@ -120,6 +136,14 @@ mod ffi {
         fn get_parameter_json(obj_index: i32) -> String;
         fn update_ppef_text(obj_index: i32) -> bool;
         fn update_ttf_text(obj_index: i32) -> bool;
+        fn get_path_nodes(obj_index: i32, path_index: i32) -> Vec<PathNode>;
+        fn move_path_node(
+            obj_index: i32,
+            path_index: i32,
+            node_index: i32,
+            world_dx: f32,
+            world_dy: f32,
+        ) -> bool;
         fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
@@ -127,7 +151,7 @@ mod ffi {
     }
 }
 
-pub use ffi::{BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, StitchData};
+pub use ffi::{BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchData};
 
 static ENGINE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -283,6 +307,21 @@ impl Engine<'_> {
     /// Rebuild a TTF text object's path from its parameters (no-op otherwise).
     pub fn update_ttf_text(&self, obj_index: i32) -> bool {
         ffi::update_ttf_text(obj_index)
+    }
+
+    pub fn path_nodes(&self, obj_index: i32, path_index: i32) -> Vec<PathNode> {
+        ffi::get_path_nodes(obj_index, path_index)
+    }
+
+    pub fn move_path_node(
+        &self,
+        obj_index: i32,
+        path_index: i32,
+        node_index: i32,
+        dx: f32,
+        dy: f32,
+    ) -> bool {
+        ffi::move_path_node(obj_index, path_index, node_index, dx, dy)
     }
 
     pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {
@@ -473,6 +512,79 @@ mod tests {
             assert!(
                 (h2 - h0).abs() / h0 < 0.05,
                 "border toggle drifted bbox: {h0} -> {h2}"
+            );
+        });
+    }
+
+    #[test]
+    fn path_node_move_shifts_anchor() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            let bytes = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../testdata/ttf-text.ppes"
+            ))
+            .expect("missing testdata/ttf-text.ppes");
+            eng.new_document();
+            assert!(eng.load_ppes(&bytes), "loadPPES failed");
+
+            // an object with editable vector paths (TTF text glyph outline)
+            let idx = (0..eng.object_count())
+                .find(|&i| !eng.path_infos(i).is_empty())
+                .expect("no object with editable paths");
+            // fixture is unrotated, so a world delta maps 1:1 to the anchor
+            assert_eq!(eng.object_snapshot(idx).rotate_degree, 0.0);
+
+            let nodes0 = eng.path_nodes(idx, 0);
+            assert!(!nodes0.is_empty(), "path 0 has no nodes");
+            let ni = nodes0
+                .iter()
+                .position(|n| n.node_type != 7) // skip _close
+                .expect("only close nodes");
+            let (x0, y0) = (nodes0[ni].x, nodes0[ni].y);
+            let stitches0 = eng.stitch_data(idx).total_points;
+            assert!(stitches0 > 0, "fixture has no stitches to begin with");
+
+            assert!(
+                eng.move_path_node(idx, 0, ni as i32, 123.0, -45.0),
+                "move_path_node failed"
+            );
+
+            let nodes1 = eng.path_nodes(idx, 0);
+            assert_eq!(nodes1.len(), nodes0.len(), "node count changed");
+            let (x1, y1) = (nodes1[ni].x, nodes1[ni].y);
+            assert!(
+                (x1 - (x0 + 123.0)).abs() < 0.5 && (y1 - (y0 - 45.0)).abs() < 0.5,
+                "anchor did not move as expected: ({x0},{y0}) -> ({x1},{y1})"
+            );
+            // the edit must not wipe the stitches (regression: "ลายปักหาย")
+            let stitches1 = eng.stitch_data(idx).total_points;
+            assert!(
+                stitches1 > 0,
+                "stitches vanished after node move: {stitches0} -> {stitches1}"
+            );
+        });
+    }
+
+    /// Regression for "ลายปักหาย": editing a PPEF-text node must regenerate
+    /// via applyPPEFFill (not applyFill, which wipes the fill to 0 stitches).
+    #[test]
+    fn ppef_node_move_keeps_stitches() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+            assert!(eng.update_ppef_text(idx));
+            let s0 = eng.stitch_data(idx).total_points;
+            assert!(s0 > 0, "fixture has no stitches to begin with");
+
+            let nodes = eng.path_nodes(idx, 0);
+            assert!(!nodes.is_empty(), "PPEF path 0 has no nodes");
+            let ni = nodes.iter().position(|n| n.node_type != 7).unwrap_or(0);
+
+            assert!(eng.move_path_node(idx, 0, ni as i32, 20.0, 0.0), "move failed");
+            let s1 = eng.stitch_data(idx).total_points;
+            assert!(
+                s1 > 0,
+                "PPEF stitches vanished after node move: {s0} -> {s1}"
             );
         });
     }
