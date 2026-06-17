@@ -120,7 +120,9 @@ export default function EmbroideryStage() {
   return (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-hidden bg-neutral-300"
+      className={`h-full w-full overflow-hidden transition-colors ${
+        viewMode === "stitch" ? "bg-neutral-800" : "bg-neutral-300"
+      }`}
     >
       <ViewContext.Provider
         value={{
@@ -139,7 +141,7 @@ export default function EmbroideryStage() {
           onMouseUp={() => (panState.current = null)}
           onMouseLeave={() => (panState.current = null)}
         >
-          <GridLayer hoopWMm={hoopWMm} hoopHMm={hoopHMm} />
+          <GridLayer hoopWMm={hoopWMm} hoopHMm={hoopHMm} mode={viewMode} />
           {viewMode === "design" ? <ObjectsLayer /> : <StitchLayer />}
         </Stage>
       </ViewContext.Provider>

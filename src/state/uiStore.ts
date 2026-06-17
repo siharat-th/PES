@@ -19,7 +19,7 @@ export const useUiStore = create<UiState>((set) => ({
   viewMode: "design",
   simIndex: -1,
   simPlaying: false,
-  simSpeed: 30,
+  simSpeed: 2,
 
   setViewMode: (viewMode) =>
     set(

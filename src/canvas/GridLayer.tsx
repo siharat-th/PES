@@ -1,20 +1,40 @@
 import { Layer, Rect, Line } from "react-konva";
 import { UNITS_PER_MM } from "../engine/types";
+import type { ViewMode } from "../state/uiStore";
 import { useView, layerTransform } from "./viewContext";
 
 /** Hoop, 5 mm grid and center axes — port of drawNodes (PesHelper.js:838-860).
- *  Coordinates are engine units (0.1 mm) with the origin at hoop center. */
+ *  Coordinates are engine units (0.1 mm) with the origin at hoop center.
+ *  In stitch view the hoop becomes a dark fabric so threads + penetration
+ *  dots read with real contrast. */
 export default function GridLayer({
   hoopWMm,
   hoopHMm,
+  mode,
 }: {
   hoopWMm: number;
   hoopHMm: number;
+  mode: ViewMode;
 }) {
   const view = useView();
   const hw = hoopWMm * UNITS_PER_MM;
   const hh = hoopHMm * UNITS_PER_MM;
   const step = 50; // 5 mm
+
+  const stitch = mode === "stitch";
+  const c = stitch
+    ? {
+        fabric: "#34373d",
+        grid: "rgba(255,255,255,0.05)",
+        axis: "rgba(255,255,255,0.13)",
+        border: "#5b5f66",
+      }
+    : {
+        fabric: "#ffffff",
+        grid: "#e3e3e3",
+        axis: "#b5b5b5",
+        border: "#999999",
+      };
 
   const vLines = [];
   for (let x = step; x < hw / 2; x += step) vLines.push(x, -x);
@@ -28,8 +48,8 @@ export default function GridLayer({
         y={-hh / 2}
         width={hw}
         height={hh}
-        fill="#ffffff"
-        stroke="#999999"
+        fill={c.fabric}
+        stroke={c.border}
         strokeWidth={1}
         strokeScaleEnabled={false}
       />
@@ -37,7 +57,7 @@ export default function GridLayer({
         <Line
           key={`v${x}`}
           points={[x, -hh / 2, x, hh / 2]}
-          stroke="#e3e3e3"
+          stroke={c.grid}
           strokeWidth={1}
           strokeScaleEnabled={false}
         />
@@ -46,7 +66,7 @@ export default function GridLayer({
         <Line
           key={`h${y}`}
           points={[-hw / 2, y, hw / 2, y]}
-          stroke="#e3e3e3"
+          stroke={c.grid}
           strokeWidth={1}
           strokeScaleEnabled={false}
         />
@@ -54,13 +74,13 @@ export default function GridLayer({
       {/* center axes */}
       <Line
         points={[0, -hh / 2, 0, hh / 2]}
-        stroke="#b5b5b5"
+        stroke={c.axis}
         strokeWidth={1.5}
         strokeScaleEnabled={false}
       />
       <Line
         points={[-hw / 2, 0, hw / 2, 0]}
-        stroke="#b5b5b5"
+        stroke={c.axis}
         strokeWidth={1.5}
         strokeScaleEnabled={false}
       />
