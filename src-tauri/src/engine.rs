@@ -144,6 +144,14 @@ mod ffi {
             world_dx: f32,
             world_dy: f32,
         ) -> bool;
+        fn move_path_handle(
+            obj_index: i32,
+            path_index: i32,
+            cmd_index: i32,
+            cp_slot: i32,
+            world_dx: f32,
+            world_dy: f32,
+        ) -> bool;
         fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
@@ -322,6 +330,18 @@ impl Engine<'_> {
         dy: f32,
     ) -> bool {
         ffi::move_path_node(obj_index, path_index, node_index, dx, dy)
+    }
+
+    pub fn move_path_handle(
+        &self,
+        obj_index: i32,
+        path_index: i32,
+        cmd_index: i32,
+        cp_slot: i32,
+        dx: f32,
+        dy: f32,
+    ) -> bool {
+        ffi::move_path_handle(obj_index, path_index, cmd_index, cp_slot, dx, dy)
     }
 
     pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {

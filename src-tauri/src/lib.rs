@@ -59,6 +59,7 @@ pub fn run() {
             commands::apply_path_op,
             commands::get_path_nodes,
             commands::move_path_node,
+            commands::move_path_handle,
             commands::translate_objects,
             commands::delete_objects,
         ])

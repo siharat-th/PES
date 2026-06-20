@@ -64,6 +64,9 @@ bool update_ttf_text(int32_t obj_index);
 rust::Vec<PathNode> get_path_nodes(int32_t obj_index, int32_t path_index);
 bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
                     float world_dx, float world_dy);
+// Move one bezier control point. cp_slot: 1 = cp1, 2 = cp2 of command cmd_index.
+bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
+                      int32_t cp_slot, float world_dx, float world_dy);
 
 // op: inset | outset | simplify | unite_next | separate | erase_under | up | down
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op, float value);

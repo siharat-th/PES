@@ -102,6 +102,18 @@ export async function movePathNode(
   return invoke("move_path_node", { index, pathIndex, nodeIndex, dx, dy });
 }
 
+/** Move one bezier control point (cpSlot: 1=cp1, 2=cp2 of cmdIndex). */
+export async function movePathHandle(
+  index: number,
+  pathIndex: number,
+  cmdIndex: number,
+  cpSlot: number,
+  dx: number,
+  dy: number,
+): Promise<DocumentSnapshot> {
+  return invoke("move_path_handle", { index, pathIndex, cmdIndex, cpSlot, dx, dy });
+}
+
 export async function getBrotherPalette(): Promise<BrotherColor[]> {
   return invoke("get_brother_palette");
 }

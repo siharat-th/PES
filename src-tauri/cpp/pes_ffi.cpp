@@ -939,4 +939,31 @@ bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
     return true;
 }
 
+bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
+                      int32_t cp_slot, float world_dx, float world_dy) {
+    if (!validPath(obj_index, path_index))
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    auto& cmds = pes->paths[path_index].getCommands();
+    if (cmd_index < 0 || cmd_index >= (int32_t)cmds.size())
+        return false;
+
+    pesVec2f d(world_dx, world_dy);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    if (std::abs(angle) > 1e-4f)
+        d.rotate(-angle);
+
+    auto& c = cmds[cmd_index];
+    if (cp_slot == 1) {
+        c.cp1.x += d.x; c.cp1.y += d.y;
+    } else if (cp_slot == 2) {
+        c.cp2.x += d.x; c.cp2.y += d.y;
+    } else {
+        return false;
+    }
+    pes->paths[path_index].flagShapeChanged();
+    reapplyStitches(obj_index, pes);
+    return true;
+}
+
 } // namespace pesffi

@@ -441,6 +441,26 @@ pub async fn move_path_node(
     .await
 }
 
+/// Move one bezier control point (cp_slot: 1=cp1, 2=cp2 of cmd_index) by a
+/// world delta, then regenerate stitches. One undo step per drag.
+#[tauri::command]
+pub async fn move_path_handle(
+    index: i32,
+    path_index: i32,
+    cmd_index: i32,
+    cp_slot: i32,
+    dx: f32,
+    dy: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.move_path_handle(index, path_index, cmd_index, cp_slot, dx, dy)
+        });
+        document_snapshot()
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn apply_path_op(
     index: i32,

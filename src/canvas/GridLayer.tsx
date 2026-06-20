@@ -21,8 +21,9 @@ export default function GridLayer({
   const hh = hoopHMm * UNITS_PER_MM;
   const step = 50; // 5 mm
 
-  const stitch = mode === "stitch";
-  const c = stitch
+  // stitch + node-edit modes use the dark fabric so threads/handles pop
+  const dark = mode !== "design";
+  const c = dark
     ? {
         fabric: "#34373d",
         grid: "rgba(255,255,255,0.05)",

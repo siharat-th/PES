@@ -123,7 +123,7 @@ export default function EmbroideryStage() {
     <div
       ref={containerRef}
       className={`h-full w-full overflow-hidden transition-colors ${
-        viewMode === "stitch" ? "bg-neutral-800" : "bg-neutral-300"
+        viewMode === "design" ? "bg-neutral-300" : "bg-neutral-800"
       }`}
     >
       <ViewContext.Provider
