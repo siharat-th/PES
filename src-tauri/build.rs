@@ -22,9 +22,11 @@ fn main() {
     } else {
         skiaapps.join("out/linux-release")
     };
+    // Skia + third-party stay prebuilt; only the pes engine is compiled from
+    // source in-repo (below), so the gate is libskia, not libpes.
     assert!(
-        out_dir.join("libpes.a").exists() || out_dir.join("pes.lib").exists(),
-        "libpes not built at {out_dir:?}; run: ninja -C <out> skia modules/pes:pes"
+        out_dir.join("libskia.a").exists() || out_dir.join("skia.lib").exists(),
+        "libskia not built at {out_dir:?}; run: ninja -C <out> skia modules/pes:pes"
     );
 
     let apps2_utils = skiaapps.join("apps2/1080_PES5Template/src/Utils");
@@ -34,18 +36,36 @@ fn main() {
         .file("cpp/pes_resources.cpp")
         // PPEF text shaping (native SQLiteCpp) from the old app layer
         .file(apps2_utils.join("PesPPEFUtils.cpp"))
-        .file(apps2_utils.join("PesUnicodeUtils.cpp"))
+        .file(apps2_utils.join("PesUnicodeUtils.cpp"));
+    // The pes engine, compiled from our in-repo copy (formerly the prebuilt
+    // libpes.a). This is what lets us edit the PPES format here and recompile
+    // with `cargo build`. Source list mirrors ../SkiaApps/modules/pes/pes.gni;
+    // headers come from cpp/pes/include (NOT the SkiaApps copy) so every TU —
+    // facade, PPEF utils, and engine — shares one Parameter/pesData layout.
+    for src in [
+        "UnicodeHelper", "clipper", "pesAutoBranch", "pesBuffer", "pesClipper",
+        "pesColor", "pesCubicSuperPath", "pesData", "pesDocument", "pesEMBClassify",
+        "pesEMBFill", "pesEffect", "pesEncoder", "pesGcode", "pesMath", "pesPath",
+        "pesPathUtility", "pesPolyline", "pesRectangle", "pesSVG", "pesSatinColumn",
+        "pesSatinOutline", "pesSkPath", "pesStitchBlock", "pesUtility", "pesVec2f",
+        "pugixml",
+    ] {
+        bridge.file(format!("cpp/pes/src/{src}.cpp"));
+    }
+    bridge
         .include("cpp")
+        .include("cpp/pes/include") // our editable copy of the pes headers
         .include(&skiaapps) // Skia headers as include/core/..., modules/...
-        .include(skiaapps.join("modules/pes/include"))
         .include(&apps2_utils)
         .include(skiaapps.join("third_party/sqlitecpp/include"))
         .include(skiaapps.join("third_party/sqlitecpp/sqlite3"))
         .flag_if_supported("-std=c++17")
         .flag_if_supported("-Wno-deprecated-declarations");
-    // ABI/layout-affecting defines MUST match the GN build of libskia/libpes
+    // ABI/layout-affecting defines MUST match the GN build of libskia
     // (`gn desc <out> //modules/pes:pes defines`), otherwise types like sk_sp
     // are passed with a different calling convention and crash at runtime.
+    // NOTE: these now govern the WHOLE pes engine (compiled above), not just
+    // the facade — they must stay in lockstep with the prebuilt libskia.
     for (k, v) in [
         ("NDEBUG", None),
         ("SK_TRIVIAL_ABI", Some("[[clang::trivial_abi]]")),
@@ -75,7 +95,7 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     // Order roughly matters for some linkers: app code -> pes -> skia -> third-party.
     for lib in [
-        "pes", "skia", "skshaper", "skunicode", "svg", "skresources",
+        "skia", "skshaper", "skunicode", "svg", "skresources",
         "harfbuzz", "icu", "expat", "png", "zlib", "jpeg", "webp",
         "webp_sse41", "skcms", "wuffs", "piex", "dng_sdk", "sqlitecpp",
     ] {
@@ -98,5 +118,7 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/pes_resources.cpp");
     println!("cargo:rerun-if-changed=cpp/pes_ffi.cpp");
     println!("cargo:rerun-if-changed=cpp/pes_ffi.h");
+    println!("cargo:rerun-if-changed=cpp/pes/src");
+    println!("cargo:rerun-if-changed=cpp/pes/include");
     println!("cargo:rerun-if-env-changed=SKIAAPPS_DIR");
 }

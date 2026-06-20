@@ -31,6 +31,16 @@ interface DocumentState {
   setLocked: (index: number, locked: boolean) => Promise<void>;
   reorder: (index: number, dir: number) => Promise<void>;
   reorderTo: (from: number, to: number) => Promise<void>;
+  /** select every object in a group (group header click) */
+  selectGroup: (id: number, additive?: boolean) => void;
+  createGroup: (name: string, memberIndices?: number[]) => Promise<void>;
+  renameGroup: (id: number, name: string) => Promise<void>;
+  ungroup: (id: number) => Promise<void>;
+  addToGroup: (id: number, indices: number[]) => Promise<void>;
+  removeFromGroup: (indices: number[]) => Promise<void>;
+  setGroupCollapsed: (id: number, collapsed: boolean) => Promise<void>;
+  setGroupVisible: (id: number, visible: boolean) => Promise<void>;
+  setGroupLocked: (id: number, locked: boolean) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   /** run any engine mutation that returns a fresh DocumentSnapshot */
@@ -138,6 +148,47 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       // the dragged object now lives at `to`; keep it selected
       set({ selectedIndices: [to], selectedIndex: to });
     },
+
+    selectGroup: (id, additive = false) =>
+      set((s) => {
+        const members = (s.doc?.objects ?? [])
+          .filter((o) => o.group_id === id)
+          .map((o) => o.index);
+        if (!members.length) {
+          return additive ? {} : { selectedIndices: [], selectedIndex: -1 };
+        }
+        let list: number[];
+        if (additive) {
+          const cur = new Set(s.selectedIndices);
+          const allIn = members.every((m) => cur.has(m));
+          list = allIn
+            ? s.selectedIndices.filter((i) => !members.includes(i)) // toggle off
+            : [...new Set([...s.selectedIndices, ...members])];
+        } else {
+          list = members;
+        }
+        return {
+          selectedIndices: list,
+          selectedIndex: list.length ? list[list.length - 1] : -1,
+        };
+      }),
+
+    // Group structure changes don't alter pixels, so they don't bump
+    // imageVersion (run(false)) — the panel re-renders from `doc` regardless.
+    createGroup: (name, memberIndices = []) =>
+      run(false, () => engine.createGroup(name, memberIndices)),
+    renameGroup: (id, name) => run(false, () => engine.renameGroup(id, name)),
+    ungroup: (id) => run(false, () => engine.ungroup(id)),
+    addToGroup: (id, indices) =>
+      run(false, () => engine.addToGroup(id, indices)),
+    removeFromGroup: (indices) =>
+      run(false, () => engine.removeFromGroup(indices)),
+    setGroupCollapsed: (id, collapsed) =>
+      run(false, () => engine.setGroupCollapsed(id, collapsed)),
+    setGroupVisible: (id, visible) =>
+      run(false, () => engine.setGroupVisible(id, visible)),
+    setGroupLocked: (id, locked) =>
+      run(false, () => engine.setGroupLocked(id, locked)),
 
     undo: () => run(true, () => engine.undo()),
     redo: () => run(true, () => engine.redo()),

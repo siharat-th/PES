@@ -13,6 +13,19 @@ export interface ObjectSnapshot {
   scalable: boolean;
   object_type: string;
   text: string;
+  /** layer-group membership; 0 = ungrouped (see GroupSnapshot) */
+  group_id: number;
+}
+
+/** A layer group (folder-like; organizational metadata, not an object). */
+export interface GroupSnapshot {
+  id: number;
+  parent_id: number;
+  name: string;
+  collapsed: boolean;
+  order: number;
+  /** derived: false if any member object is non-scalable */
+  scalable: boolean;
 }
 
 export interface PathInfo {
@@ -44,6 +57,7 @@ export interface DocumentSnapshot {
   hoop_width_mm: number;
   hoop_height_mm: number;
   objects: ObjectSnapshot[];
+  groups: GroupSnapshot[];
   can_undo: boolean;
   can_redo: boolean;
 }

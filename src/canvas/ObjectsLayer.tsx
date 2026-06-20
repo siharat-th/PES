@@ -117,7 +117,9 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
     }
   };
 
-  const primaryScalable =
+  // The whole selection is scalable only if EVERY selected object is — so a
+  // group containing a non-scalable "Stitch" shows no scale handles.
+  const selectionScalable =
     selectedIndices.length > 0 &&
     selectedIndices.every(
       (i) => objects.find((o) => o.index === i)?.scalable,
@@ -163,7 +165,7 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
         centeredScaling={false}
         keepRatio
         enabledAnchors={
-          primaryScalable
+          selectionScalable
             ? [
                 "top-left",
                 "top-right",

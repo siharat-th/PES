@@ -148,6 +148,7 @@ ObjectSnapshot get_object_snapshot(int32_t index) {
     s.scalable = data->isScalable();
     s.object_type = objectTypeToString(param.type);
     s.text = std::string(param.text);
+    s.group_id = param.groupId;
     return s;
 }
 
@@ -224,6 +225,60 @@ bool move_object_to(int32_t from, int32_t to) {
     while (cur < to && doc()->moveObjectFront(cur)) cur++;
     while (cur > to && doc()->moveObjectBack(cur)) cur--;
     return cur == to;
+}
+
+// --- Layer groups ---------------------------------------------------------
+
+rust::Vec<GroupSnapshot> get_groups() {
+    rust::Vec<GroupSnapshot> out;
+    for (const auto& g : doc()->getGroups()) {
+        GroupSnapshot s{};
+        s.id = g.id;
+        s.parent_id = g.parentId;
+        s.name = g.name;
+        s.collapsed = g.collapsed;
+        s.order = g.order;
+        s.scalable = doc()->isGroupScalable(g.id);
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
+int32_t create_group(rust::Str name, int32_t parent_id) {
+    return doc()->createGroup(std::string(name), parent_id);
+}
+
+bool rename_group(int32_t id, rust::Str name) {
+    return doc()->renameGroup(id, std::string(name));
+}
+
+bool delete_group(int32_t id) {
+    return doc()->deleteGroup(id);
+}
+
+bool set_group_collapsed(int32_t id, bool collapsed) {
+    return doc()->setGroupCollapsed(id, collapsed);
+}
+
+bool set_group_order(int32_t id, int32_t order) {
+    return doc()->setGroupOrder(id, order);
+}
+
+void set_object_group(int32_t index, int32_t group_id) {
+    doc()->setObjectGroup(index, group_id);
+}
+
+// Cascade visibility/lock from a group header to all its member objects.
+void set_group_visible(int32_t id, bool visible) {
+    auto& objs = doc()->getDataObjects();
+    for (auto& d : objs)
+        if (d->parameter.groupId == id) d->parameter.visible = visible;
+}
+
+void set_group_locked(int32_t id, bool locked) {
+    auto& objs = doc()->getDataObjects();
+    for (auto& d : objs)
+        if (d->parameter.groupId == id) d->parameter.locked = locked;
 }
 
 rust::Vec<uint8_t> export_as(rust::Str format) {

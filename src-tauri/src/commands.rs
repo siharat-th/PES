@@ -2,7 +2,8 @@
 //! Engine work runs on blocking threads (stitch ops can be slow).
 
 use crate::engine::{
-    with_engine, BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchBlock,
+    with_engine, BrotherColor, ColorBlockInfo, GroupSnapshot, ObjectSnapshot, PathInfo, PathNode,
+    StitchBlock,
 };
 use crate::history;
 use serde::Serialize;
@@ -13,6 +14,7 @@ pub struct DocumentSnapshot {
     pub hoop_width_mm: f32,
     pub hoop_height_mm: f32,
     pub objects: Vec<ObjectSnapshot>,
+    pub groups: Vec<GroupSnapshot>,
     pub can_undo: bool,
     pub can_redo: bool,
 }
@@ -24,6 +26,7 @@ fn document_snapshot() -> DocumentSnapshot {
             hoop_width_mm: w,
             hoop_height_mm: h,
             objects: eng.object_snapshots(),
+            groups: eng.groups(),
             can_undo: history::can_undo(),
             can_redo: history::can_redo(),
         }
@@ -636,6 +639,112 @@ pub async fn delete_objects(mut indices: Vec<i32>) -> Result<DocumentSnapshot, S
             for &i in &indices {
                 eng.delete_object(i);
             }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+// --- Layer groups ---------------------------------------------------------
+
+/// Create a group and (optionally) move the given objects into it — ONE undo step.
+#[tauri::command]
+pub async fn create_group(
+    name: String,
+    member_indices: Vec<i32>,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            let id = eng.create_group(&name, 0);
+            for &i in &member_indices {
+                eng.set_object_group(i, id);
+            }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_group(id: i32, name: String) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.rename_group(id, &name);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Ungroup: drop the group, members revert to ungrouped (objects are kept).
+#[tauri::command]
+pub async fn ungroup(id: i32) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.delete_group(id);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn add_to_group(id: i32, indices: Vec<i32>) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            for &i in &indices {
+                eng.set_object_group(i, id);
+            }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_from_group(indices: Vec<i32>) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            for &i in &indices {
+                eng.set_object_group(i, 0);
+            }
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Collapse/expand is UI metadata: it persists into the file but does NOT push
+/// an undo entry (mirrors the lightweight feel of toggling visibility).
+#[tauri::command]
+pub async fn set_group_collapsed(id: i32, collapsed: bool) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        with_engine(|eng| {
+            eng.set_group_collapsed(id, collapsed);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Cascade visibility to all members — ONE undo step.
+#[tauri::command]
+pub async fn set_group_visible(id: i32, visible: bool) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.set_group_visible(id, visible);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Cascade lock to all members — ONE undo step.
+#[tauri::command]
+pub async fn set_group_locked(id: i32, locked: bool) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.set_group_locked(id, locked);
         });
         document_snapshot()
     })

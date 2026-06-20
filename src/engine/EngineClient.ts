@@ -89,6 +89,62 @@ export async function reorderObjectTo(
   return invoke("reorder_object_to", { from, to });
 }
 
+// --- Layer groups ---------------------------------------------------------
+
+/** Create a group; if memberIndices is non-empty, move those objects into it. */
+export async function createGroup(
+  name: string,
+  memberIndices: number[] = [],
+): Promise<DocumentSnapshot> {
+  return invoke("create_group", { name, memberIndices });
+}
+
+export async function renameGroup(
+  id: number,
+  name: string,
+): Promise<DocumentSnapshot> {
+  return invoke("rename_group", { id, name });
+}
+
+/** Ungroup: drop the group, members revert to ungrouped (objects kept). */
+export async function ungroup(id: number): Promise<DocumentSnapshot> {
+  return invoke("ungroup", { id });
+}
+
+export async function addToGroup(
+  id: number,
+  indices: number[],
+): Promise<DocumentSnapshot> {
+  return invoke("add_to_group", { id, indices });
+}
+
+export async function removeFromGroup(
+  indices: number[],
+): Promise<DocumentSnapshot> {
+  return invoke("remove_from_group", { indices });
+}
+
+export async function setGroupCollapsed(
+  id: number,
+  collapsed: boolean,
+): Promise<DocumentSnapshot> {
+  return invoke("set_group_collapsed", { id, collapsed });
+}
+
+export async function setGroupVisible(
+  id: number,
+  visible: boolean,
+): Promise<DocumentSnapshot> {
+  return invoke("set_group_visible", { id, visible });
+}
+
+export async function setGroupLocked(
+  id: number,
+  locked: boolean,
+): Promise<DocumentSnapshot> {
+  return invoke("set_group_locked", { id, locked });
+}
+
 export async function getObjectPaths(index: number): Promise<PathInfo[]> {
   return invoke("get_object_paths", { index });
 }

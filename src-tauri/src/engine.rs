@@ -21,6 +21,20 @@ mod ffi {
         scalable: bool,
         object_type: String,
         text: String,
+        /// layer-group membership; 0 = ungrouped (see GroupSnapshot)
+        group_id: i32,
+    }
+
+    /// Plain-data view of one layer group (folder-like; metadata only).
+    #[derive(Debug, Clone, Serialize)]
+    struct GroupSnapshot {
+        id: i32,
+        parent_id: i32,
+        name: String,
+        collapsed: bool,
+        order: i32,
+        /// derived: false if any member object is non-scalable
+        scalable: bool,
     }
 
     /// One vector path inside an object (colors as #RRGGBB).
@@ -137,6 +151,16 @@ mod ffi {
         fn move_object_back(index: i32) -> bool;
         fn move_object_to(from: i32, to: i32) -> bool;
 
+        fn get_groups() -> Vec<GroupSnapshot>;
+        fn create_group(name: &str, parent_id: i32) -> i32;
+        fn rename_group(id: i32, name: &str) -> bool;
+        fn delete_group(id: i32) -> bool;
+        fn set_group_collapsed(id: i32, collapsed: bool) -> bool;
+        fn set_group_order(id: i32, order: i32) -> bool;
+        fn set_object_group(index: i32, group_id: i32);
+        fn set_group_visible(id: i32, visible: bool);
+        fn set_group_locked(id: i32, locked: bool);
+
         fn export_as(format: &str) -> Vec<u8>;
         fn get_thumbnail_png(wmax: i32, hmax: i32, index: i32) -> Vec<u8>;
 
@@ -213,8 +237,8 @@ mod ffi {
 }
 
 pub use ffi::{
-    BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchBlock, StitchData,
-    StitchPoint,
+    BrotherColor, ColorBlockInfo, GroupSnapshot, ObjectSnapshot, PathInfo, PathNode, StitchBlock,
+    StitchData, StitchPoint,
 };
 
 static ENGINE_LOCK: Mutex<()> = Mutex::new(());
@@ -314,6 +338,42 @@ impl Engine<'_> {
 
     pub fn move_object_to(&self, from: i32, to: i32) -> bool {
         ffi::move_object_to(from, to)
+    }
+
+    pub fn groups(&self) -> Vec<GroupSnapshot> {
+        ffi::get_groups()
+    }
+
+    pub fn create_group(&self, name: &str, parent_id: i32) -> i32 {
+        ffi::create_group(name, parent_id)
+    }
+
+    pub fn rename_group(&self, id: i32, name: &str) -> bool {
+        ffi::rename_group(id, name)
+    }
+
+    pub fn delete_group(&self, id: i32) -> bool {
+        ffi::delete_group(id)
+    }
+
+    pub fn set_group_collapsed(&self, id: i32, collapsed: bool) -> bool {
+        ffi::set_group_collapsed(id, collapsed)
+    }
+
+    pub fn set_group_order(&self, id: i32, order: i32) -> bool {
+        ffi::set_group_order(id, order)
+    }
+
+    pub fn set_object_group(&self, index: i32, group_id: i32) {
+        ffi::set_object_group(index, group_id);
+    }
+
+    pub fn set_group_visible(&self, id: i32, visible: bool) {
+        ffi::set_group_visible(id, visible);
+    }
+
+    pub fn set_group_locked(&self, id: i32, locked: bool) {
+        ffi::set_group_locked(id, locked);
     }
 
     pub fn export_as(&self, format: &str) -> Vec<u8> {
@@ -932,6 +992,61 @@ mod tests {
             let exported = eng.export_as("PES");
             assert!(!exported.is_empty(), "PES export is empty");
             assert_eq!(&exported[..4], b"#PES", "PES magic missing");
+        });
+    }
+
+    #[test]
+    fn group_roundtrip_survives_ppes() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+
+            // a populated group (holds the PPEF object) + an empty group
+            let g_sleeve = eng.create_group("Sleeve", 0);
+            let g_empty = eng.create_group("Empty", 0);
+            assert!(g_sleeve != g_empty && g_sleeve > 0 && g_empty > 0);
+            eng.set_object_group(idx, g_sleeve);
+            assert!(eng.set_group_collapsed(g_sleeve, true));
+
+            // pre-save invariants
+            let groups = eng.groups();
+            assert_eq!(groups.len(), 2, "expected 2 groups before save");
+            assert_eq!(eng.object_snapshot(idx).group_id, g_sleeve);
+            let sleeve = groups.iter().find(|g| g.id == g_sleeve).unwrap();
+            assert!(sleeve.collapsed && sleeve.name == "Sleeve");
+            // PPEF Text is scalable, so its group is scalable
+            assert!(sleeve.scalable, "scalable group reported non-scalable");
+
+            // round-trip through PPES (the v504 format)
+            let ppes = eng.export_as("PPES");
+            assert!(!ppes.is_empty(), "PPES export empty");
+            assert!(
+                ppes.windows(9).any(|w| w == b"numGroups"),
+                "no group section written to PPES"
+            );
+            eng.new_document();
+            assert!(eng.groups().is_empty(), "new_document did not clear groups");
+            assert!(eng.load_ppes(&ppes), "reload PPES failed");
+
+            // groups + membership + collapsed flag survive (incl. the empty group)
+            let groups = eng.groups();
+            assert_eq!(groups.len(), 2, "groups lost across save/load");
+            assert!(groups.iter().any(|g| g.name == "Empty"), "empty group lost");
+            let sleeve = groups
+                .iter()
+                .find(|g| g.name == "Sleeve")
+                .expect("Sleeve group lost");
+            assert!(sleeve.collapsed, "collapsed flag lost across save/load");
+            assert!(
+                (0..eng.object_count()).any(|i| eng.object_snapshot(i).group_id == sleeve.id),
+                "object membership lost across save/load"
+            );
+
+            // a freshly created group must not reuse a loaded id
+            let g_new = eng.create_group("New", 0);
+            assert!(
+                groups.iter().all(|g| g.id != g_new),
+                "nextGroupId collided with a loaded group after reload"
+            );
         });
     }
 }

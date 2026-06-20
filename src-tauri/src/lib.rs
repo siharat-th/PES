@@ -70,6 +70,14 @@ pub fn run() {
             commands::delete_stitch_point,
             commands::translate_objects,
             commands::delete_objects,
+            commands::create_group,
+            commands::rename_group,
+            commands::ungroup,
+            commands::add_to_group,
+            commands::remove_from_group,
+            commands::set_group_collapsed,
+            commands::set_group_visible,
+            commands::set_group_locked,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

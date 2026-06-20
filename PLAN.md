@@ -10,7 +10,8 @@ Tauri 2 (macOS + Windows)
 │   ├─ Canvas: Konva (objects/gizmos/PathEdit/StitchEdit/tools)
 │   └─ engine/EngineClient.ts — เรียก Tauri commands
 └─ Rust backend
-    ├─ src/engine.rs: cxx FFI → libpes.a + libskia.a (build จาก SkiaApps ด้วย GN)
+    ├─ src/engine.rs: cxx FFI → pes engine (compile จาก source ใน cpp/pes/) + libskia.a (Skia ยัง prebuilt จาก SkiaApps ด้วย GN)
+    ├─ cpp/pes/{src,include}: pesEngine ก๊อปเข้ารีโป — แก้ format/engine แล้ว cargo build recompile ได้เลย (ไม่ link libpes.a แล้ว)
     ├─ cpp/pes_ffi.{h,cpp}: facade headless ห่อ pesDocument/pesData
     ├─ cpp/pes_resources.cpp: shim แทน tools/Resources ของ Skia
     └─ Phase ถัดไป: undo/redo (Rust), depth map (ort), spot UV (image+tiff)
@@ -57,6 +58,14 @@ Tauri 2 (macOS + Windows)
 - UI: `StitchEditLayer` (Shape เดียววาดเส้น+จุดทั้งหมด, Rect โปร่งใสรับคลิกเลือกจุดใกล้สุด, handle ลากได้, hover ring); toolbar "Edit Stitches"; แก้ undoable 1 step/gesture
 - Test: `stitch_point_edit_move_insert_delete`
 
+### ✅ Slice 5 — Layer groups + engine compiled from source (เสร็จ 2026-06-20)
+- **เลิก link `libpes.a`**: ก๊อป `modules/pes/{src,include}` → `src-tauri/cpp/pes/` แล้ว `build.rs` compile 27 ไฟล์เอง(เหลือ link เฉพาะ `libskia.a` + third-party). แก้ format C++ ในรีโปนี้แล้ว `cargo build` recompile ได้เลย. include ชี้ `cpp/pes/include` ตัวเดียว (ทุก TU ใช้ layout `Parameter`/`pesData` ชุดเดียว ไม่งั้น ABI พัง). แก้ 2 include แบบ `modules/pes/include/...` → bare.
+- **PPES bump 503 → 504**: เพิ่ม `pesData::Parameter::groupId` + `pesGroup` registry (`__pesGroups`/`__nextGroupId`) ใน `pesDocument`. เขียน `numGroups`/`Group.*` ใน **header** (ก่อน object blocks ไม่ใช่ก่อน `[PINNDATA]` — กัน '#' ในชื่อกลุ่มไปชนตัว scan magic byte ของ binary loader) + `groupId=` ต่อ object. key ใหม่ทั้งหมดเป็น unknown ของ reader เก่า → เปิดไฟล์ 504 ในแอปเดิมได้ (กลุ่มถูกมองข้าม)
+- group เป็น metadata ล้วน (ไม่ใช่ pesData object) — **ไม่ใช้** `OBJECT_TYPE_SCALABLE_CONTAINER`. `group.scalable` เป็น derived (AND ของ member `isScalable()`) ไม่เก็บลงไฟล์; กลุ่มที่มี Stitch จะ scale ไม่ได้ (Transformer ปิด anchor ผ่าน `selectionScalable` เดิม)
+- FFI/commands: `create_group`/`rename_group`/`ungroup`/`add_to_group`/`remove_from_group`/`set_group_visible|locked` (undoable, cascade ไปลูก) + `set_group_collapsed` (ไม่ undoable แต่ persist). `DocumentSnapshot.groups` + `ObjectSnapshot.group_id`
+- UI: `LayerPanel` เป็น tree (header ย่อ/ขยาย, rename inline, เลือกกลุ่ม=เลือกทุก member, ปุ่มซ่อน/ล็อกทั้งกลุ่ม, hint กลุ่มสเกลไม่ได้, ปุ่ม "กลุ่มใหม่"), drag: ข้ามขอบกลุ่ม=ย้าย membership / ในกลุ่มเดิม=reorder
+- Test: `group_roundtrip_survives_ppes` (กลุ่มเปล่า+มีสมาชิก, collapsed, membership, nextGroupId monotonic, scalable derive)
+
 ### ▶ Milestone ถัดไป (Phase 1 ต่อ)
 1. ตรวจ fidelity transform กับแอปเดิม (scale semantics ของ pesData.scale ที่ไม่ scalable, rotate + stitch regen)
 2. Undo/Redo (Rust command stack ตาม PESUndoRedoCommand)
@@ -69,7 +78,7 @@ Tauri 2 (macOS + Windows)
 ## คำสั่งที่ใช้บ่อย
 - Test engine: `cd src-tauri && cargo test --lib engine`
 - Dev app: `npm run tauri dev`
-- Rebuild libpes หลังแก้ engine: `cd ../SkiaApps && ninja -C out/macos-arm64-release skia modules/pes:pes`
+- แก้ engine/format: แก้ใน `src-tauri/cpp/pes/` แล้ว `cargo build` (recompile เอง). ต้องมี `libskia.a` พร้อมที่ `SkiaApps/out/...` — rebuild Skia: `cd ../SkiaApps && ninja -C out/macos-arm64-release skia`
 
 ## Reference หลัก (โค้ดเดิม)
 - API spec: `SkiaApps/apps2/1080_PES5Template/src/PES5Template_bindings.cpp`, `SkiaApps/modules/canvaskit/pes_bindings.cpp`
