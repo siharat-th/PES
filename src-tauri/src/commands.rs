@@ -365,7 +365,7 @@ pub async fn set_parameter(
     value: ParamValue,
 ) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
-        let ok = history::run_undoable(|eng| {
+        let ok = history::run_undoable_checked(|eng| {
             let ok = match &value {
                 ParamValue::Bool(b) => eng.set_param_bool(index, &key, *b),
                 ParamValue::Num(n) => eng.set_param_num(index, &key, *n),
@@ -435,7 +435,9 @@ pub async fn move_path_node(
     dy: f32,
 ) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
-        history::run_undoable(|eng| eng.move_path_node(index, path_index, node_index, dx, dy));
+        history::run_undoable_checked(|eng| {
+            eng.move_path_node(index, path_index, node_index, dx, dy)
+        });
         document_snapshot()
     })
     .await
@@ -453,9 +455,42 @@ pub async fn move_path_handle(
     dy: f32,
 ) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
-        history::run_undoable(|eng| {
+        history::run_undoable_checked(|eng| {
             eng.move_path_handle(index, path_index, cmd_index, cp_slot, dx, dy)
         });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Insert a node on the segment ending at node_index, at parameter t. Errors
+/// (keeping the selection) if the segment isn't interpolatable.
+#[tauri::command]
+pub async fn insert_path_node(
+    index: i32,
+    path_index: i32,
+    node_index: i32,
+    t: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        // refusal (non-interpolatable segment) is a benign no-op, not an error
+        history::run_undoable_checked(|eng| eng.insert_path_node(index, path_index, node_index, t));
+        document_snapshot()
+    })
+    .await
+}
+
+/// Delete the node at node_index. Errors if it's a subpath start/close or would
+/// collapse the subpath.
+#[tauri::command]
+pub async fn delete_path_node(
+    index: i32,
+    path_index: i32,
+    node_index: i32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        // refusal (subpath would collapse, or moveTo/close) is a benign no-op
+        history::run_undoable_checked(|eng| eng.delete_path_node(index, path_index, node_index));
         document_snapshot()
     })
     .await
@@ -469,7 +504,7 @@ pub async fn apply_path_op(
     value: f32,
 ) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
-        let ok = history::run_undoable(|eng| eng.path_op(index, path_index, &op, value));
+        let ok = history::run_undoable_checked(|eng| eng.path_op(index, path_index, &op, value));
         if !ok {
             return Err(format!("path op ล้มเหลว: {op}"));
         }

@@ -97,6 +97,7 @@ export default function App() {
       const typing = tag === "INPUT" || tag === "TEXTAREA";
       const mod = e.metaKey || e.ctrlKey;
       if (!typing && (e.key === "Delete" || e.key === "Backspace")) {
+        if (viewMode === "pathEdit") return; // PathEditLayer deletes the node
         void deleteSelected();
       } else if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -112,7 +113,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, duplicateSelected, undo, redo, requestFit]);
+  }, [deleteSelected, duplicateSelected, undo, redo, requestFit, viewMode]);
 
   const selectedObj = doc?.objects.find((o) => o.index === selectedIndex);
 

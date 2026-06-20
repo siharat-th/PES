@@ -60,6 +60,8 @@ pub fn run() {
             commands::get_path_nodes,
             commands::move_path_node,
             commands::move_path_handle,
+            commands::insert_path_node,
+            commands::delete_path_node,
             commands::translate_objects,
             commands::delete_objects,
         ])

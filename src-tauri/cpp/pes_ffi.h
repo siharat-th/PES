@@ -67,6 +67,14 @@ bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
 // Move one bezier control point. cp_slot: 1 = cp1, 2 = cp2 of command cmd_index.
 bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
                       int32_t cp_slot, float world_dx, float world_dy);
+// Insert a node on the segment ENTERING anchor node_index (between anchors
+// node_index-1 and node_index) at parameter t in (0,1) — de-Casteljau-splits a
+// bezier/quad, splits a line linearly.
+bool insert_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
+                      float t);
+// Delete the anchor command at node_index (refuses moveTo/close or collapsing
+// a subpath below 2 anchors).
+bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index);
 
 // op: inset | outset | simplify | unite_next | separate | erase_under | up | down
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op, float value);

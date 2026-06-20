@@ -60,6 +60,25 @@ pub fn run_undoable<R>(f: impl FnOnce(&Engine) -> R) -> R {
     })
 }
 
+/// Like [`run_undoable`] but only records the undo step when the mutation
+/// actually applied (closure returns `true`). A refused/no-op edit leaves the
+/// undo and redo stacks untouched.
+pub fn run_undoable_checked(f: impl FnOnce(&Engine) -> bool) -> bool {
+    with_engine(|eng| {
+        let before = snapshot(eng);
+        let changed = f(eng);
+        if changed {
+            let mut h = lock();
+            h.undo.push(before);
+            if h.undo.len() > MAX_DEPTH {
+                h.undo.remove(0);
+            }
+            h.redo.clear();
+        }
+        changed
+    })
+}
+
 pub fn undo() -> bool {
     with_engine(|eng| {
         let mut h = lock();

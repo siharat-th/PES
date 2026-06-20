@@ -114,6 +114,25 @@ export async function movePathHandle(
   return invoke("move_path_handle", { index, pathIndex, cmdIndex, cpSlot, dx, dy });
 }
 
+/** Insert a node on the segment ending at nodeIndex, at parameter t in (0,1). */
+export async function insertPathNode(
+  index: number,
+  pathIndex: number,
+  nodeIndex: number,
+  t: number,
+): Promise<DocumentSnapshot> {
+  return invoke("insert_path_node", { index, pathIndex, nodeIndex, t });
+}
+
+/** Delete the node at nodeIndex. */
+export async function deletePathNode(
+  index: number,
+  pathIndex: number,
+  nodeIndex: number,
+): Promise<DocumentSnapshot> {
+  return invoke("delete_path_node", { index, pathIndex, nodeIndex });
+}
+
 export async function getBrotherPalette(): Promise<BrotherColor[]> {
   return invoke("get_brother_palette");
 }

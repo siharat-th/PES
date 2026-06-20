@@ -152,6 +152,8 @@ mod ffi {
             world_dx: f32,
             world_dy: f32,
         ) -> bool;
+        fn insert_path_node(obj_index: i32, path_index: i32, node_index: i32, t: f32) -> bool;
+        fn delete_path_node(obj_index: i32, path_index: i32, node_index: i32) -> bool;
         fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
@@ -342,6 +344,14 @@ impl Engine<'_> {
         dy: f32,
     ) -> bool {
         ffi::move_path_handle(obj_index, path_index, cmd_index, cp_slot, dx, dy)
+    }
+
+    pub fn insert_path_node(&self, obj_index: i32, path_index: i32, node_index: i32, t: f32) -> bool {
+        ffi::insert_path_node(obj_index, path_index, node_index, t)
+    }
+
+    pub fn delete_path_node(&self, obj_index: i32, path_index: i32, node_index: i32) -> bool {
+        ffi::delete_path_node(obj_index, path_index, node_index)
     }
 
     pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {
@@ -606,6 +616,122 @@ mod tests {
                 s1 > 0,
                 "PPEF stitches vanished after node move: {s0} -> {s1}"
             );
+        });
+    }
+
+    /// In this engine a _quadBezierTo (node_type 4) stores its START point in
+    /// cp1, which must equal the previous command's endpoint. Edits that don't
+    /// maintain this gap the curve.
+    fn quad_start_invariant_holds(nodes: &[PathNode]) -> bool {
+        for i in 1..nodes.len() {
+            if nodes[i].node_type == 4 {
+                let p = &nodes[i - 1];
+                if (nodes[i].cp1x - p.x).abs() > 0.5 || (nodes[i].cp1y - p.y).abs() > 0.5 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn ttf_quad_edits_preserve_start_invariant() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            let bytes = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../testdata/ttf-text.ppes"
+            ))
+            .expect("missing testdata/ttf-text.ppes");
+            eng.new_document();
+            assert!(eng.load_ppes(&bytes), "loadPPES failed");
+            let idx = (0..eng.object_count())
+                .find(|&i| eng.object_snapshot(i).object_type == "TTF Text")
+                .expect("no TTF Text object");
+            assert!(eng.update_ttf_text(idx));
+
+            let n0 = eng.path_nodes(idx, 0);
+            assert!(
+                n0.iter().any(|n| n.node_type == 4),
+                "TTF fixture path 0 has no quads to exercise"
+            );
+            assert!(quad_start_invariant_holds(&n0), "initial invariant violated");
+
+            // INSERT on a quad segment → new quad must start at the split point
+            let k = n0
+                .iter()
+                .enumerate()
+                .position(|(j, n)| j >= 1 && n.node_type == 4)
+                .expect("no quad segment");
+            assert!(eng.insert_path_node(idx, 0, k as i32, 0.5), "insert failed");
+            let n1 = eng.path_nodes(idx, 0);
+            assert_eq!(n1.len(), n0.len() + 1);
+            assert!(quad_start_invariant_holds(&n1), "invariant broken after insert");
+            assert!(eng.stitch_data(idx).total_points > 0, "stitches vanished");
+
+            // MOVE the split node (its successor is a quad whose start must track)
+            assert!(eng.move_path_node(idx, 0, k as i32, 15.0, 7.0), "move failed");
+            let n2 = eng.path_nodes(idx, 0);
+            assert!(quad_start_invariant_holds(&n2), "invariant broken after move");
+
+            // DELETE an interior node → following quad's start must be repaired
+            let dk = n2
+                .iter()
+                .enumerate()
+                .position(|(j, n)| {
+                    j >= 1 && j + 1 < n2.len() && n.node_type != 0 && n.node_type != 7
+                })
+                .expect("no deletable interior node");
+            assert!(eng.delete_path_node(idx, 0, dk as i32), "delete failed");
+            let n3 = eng.path_nodes(idx, 0);
+            assert!(quad_start_invariant_holds(&n3), "invariant broken after delete");
+            assert!(eng.stitch_data(idx).total_points > 0, "stitches vanished");
+        });
+    }
+
+    #[test]
+    fn ppef_node_insert_keeps_stitches_adds_node() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+            assert!(eng.update_ppef_text(idx));
+            let s0 = eng.stitch_data(idx).total_points;
+            assert!(s0 > 0, "fixture has no stitches");
+            let n0 = eng.path_nodes(idx, 0);
+            // a segment end command: not the leading moveTo(0), not close(7)
+            let k = n0
+                .iter()
+                .enumerate()
+                .position(|(j, n)| j >= 1 && n.node_type != 0 && n.node_type != 7)
+                .expect("no interpolatable segment");
+            assert!(eng.insert_path_node(idx, 0, k as i32, 0.5), "insert failed");
+            let n1 = eng.path_nodes(idx, 0);
+            assert_eq!(n1.len(), n0.len() + 1, "insert should add exactly one node");
+            let s1 = eng.stitch_data(idx).total_points;
+            assert!(s1 > 0, "PPEF stitches vanished after insert: {s0} -> {s1}");
+        });
+    }
+
+    #[test]
+    fn ppef_node_delete_keeps_stitches_removes_node() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+            assert!(eng.update_ppef_text(idx));
+            let s0 = eng.stitch_data(idx).total_points;
+            assert!(s0 > 0);
+            let n0 = eng.path_nodes(idx, 0);
+            // an interior anchor with a predecessor and successor
+            let k = n0
+                .iter()
+                .enumerate()
+                .position(|(j, n)| {
+                    j >= 1 && j + 1 < n0.len() && n.node_type != 0 && n.node_type != 7
+                })
+                .expect("no deletable interior node");
+            assert!(eng.delete_path_node(idx, 0, k as i32), "delete failed");
+            let n1 = eng.path_nodes(idx, 0);
+            assert_eq!(n1.len(), n0.len() - 1, "delete should remove exactly one node");
+            let s1 = eng.stitch_data(idx).total_points;
+            assert!(s1 > 0, "PPEF stitches vanished after delete: {s0} -> {s1}");
         });
     }
 

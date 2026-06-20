@@ -931,6 +931,8 @@ bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
         if (nx.type == Cmd::_bezierTo) {
             nx.cp1.x += d.x; nx.cp1.y += d.y;
         } else if (nx.type == Cmd::_quadBezierTo) {
+            // a quad's cp1 IS its start point (== this anchor), cp2 the control
+            nx.cp1.x += d.x; nx.cp1.y += d.y;
             nx.cp2.x += d.x; nx.cp2.y += d.y;
         }
     }
@@ -961,6 +963,106 @@ bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
     } else {
         return false;
     }
+    pes->paths[path_index].flagShapeChanged();
+    reapplyStitches(obj_index, pes);
+    return true;
+}
+
+// Insert a node on the segment whose end command is node_index, subdividing at
+// t. Commands are stored unrotated and t is rotation-invariant, so this needs
+// no world<->local conversion (unlike the move ops which receive a delta).
+bool insert_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
+                      float t) {
+    if (!validPath(obj_index, path_index))
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    auto& cmds = pes->paths[path_index].getCommands();
+    const int k = node_index;
+    if (k < 1 || k >= (int32_t)cmds.size())
+        return false; // need a predecessor anchor at k-1
+
+    using Cmd = pesPath::Command;
+    auto& seg = cmds[k];
+    if (seg.type != Cmd::_lineTo && seg.type != Cmd::_bezierTo &&
+        seg.type != Cmd::_quadBezierTo)
+        return false; // no interpolatable segment (moveTo/close/arc)
+
+    if (t < 1e-3f) t = 1e-3f;
+    if (t > 1.f - 1e-3f) t = 1.f - 1e-3f;
+
+    auto lerp = [t](const pesVec3f& a, const pesVec3f& b) {
+        pesVec3f r;
+        r.x = a.x + (b.x - a.x) * t;
+        r.y = a.y + (b.y - a.y) * t;
+        r.z = a.z + (b.z - a.z) * t;
+        return r;
+    };
+
+    const pesVec3f P0 = cmds[k - 1].to;
+
+    if (seg.type == Cmd::_lineTo) {
+        Cmd mid = seg;                  // copy preserves style fields
+        mid.to = lerp(P0, seg.to);
+        cmds.insert(cmds.begin() + k, mid); // new lineTo, old shifts to k+1
+    } else if (seg.type == Cmd::_bezierTo) {
+        // cubic de Casteljau: net P0, cp1, cp2, to
+        const pesVec3f A = lerp(P0, seg.cp1);
+        const pesVec3f B = lerp(seg.cp1, seg.cp2);
+        const pesVec3f C = lerp(seg.cp2, seg.to);
+        const pesVec3f AB = lerp(A, B);
+        const pesVec3f BC = lerp(B, C);
+        const pesVec3f M = lerp(AB, BC); // split point, on the curve
+        Cmd left = seg;  left.to = M;       left.cp1 = A;  left.cp2 = AB;
+        Cmd right = seg; right.to = seg.to; right.cp1 = BC; right.cp2 = C;
+        cmds[k] = left;
+        cmds.insert(cmds.begin() + k + 1, right);
+    } else { // _quadBezierTo: cp1 = START point, cp2 = control, to = end
+        const pesVec3f A = lerp(P0, seg.cp2);
+        const pesVec3f Bq = lerp(seg.cp2, seg.to);
+        const pesVec3f M = lerp(A, Bq);
+        Cmd left = seg;  left.to = M;       left.cp1 = P0; left.cp2 = A;
+        Cmd right = seg; right.to = seg.to; right.cp1 = M;  right.cp2 = Bq;
+        cmds[k] = left;
+        cmds.insert(cmds.begin() + k + 1, right);
+    }
+
+    pes->paths[path_index].flagShapeChanged();
+    reapplyStitches(obj_index, pes);
+    return true;
+}
+
+bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index) {
+    if (!validPath(obj_index, path_index))
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    auto& cmds = pes->paths[path_index].getCommands();
+    const int k = node_index;
+    if (k < 0 || k >= (int32_t)cmds.size())
+        return false;
+
+    using Cmd = pesPath::Command;
+    if (cmds[k].type == Cmd::_moveTo || cmds[k].type == Cmd::_close)
+        return false; // never orphan a subpath start / drop the close marker
+
+    // keep the owning subpath from collapsing (need >= 2 anchors remaining)
+    int start = k;
+    while (start > 0 && cmds[start].type != Cmd::_moveTo)
+        --start;
+    int end = k + 1;
+    while (end < (int)cmds.size() && cmds[end].type != Cmd::_moveTo)
+        ++end;
+    int anchors = 0;
+    for (int j = start; j < end; ++j)
+        if (cmds[j].type != Cmd::_close)
+            ++anchors;
+    if (anchors <= 2)
+        return false;
+
+    cmds.erase(cmds.begin() + k);
+    // a quad now starting from the new predecessor must carry its start point
+    // (stored in cp1) forward, else the curve gaps to the old anchor position
+    if (k >= 1 && k < (int)cmds.size() && cmds[k].type == Cmd::_quadBezierTo)
+        cmds[k].cp1 = cmds[k - 1].to;
     pes->paths[path_index].flagShapeChanged();
     reapplyStitches(obj_index, pes);
     return true;
