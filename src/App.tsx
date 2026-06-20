@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   FilePlus2,
   FolderOpen,
   Download,
+  Save,
+  SaveAll,
   Copy,
   Trash2,
   Undo2,
@@ -13,7 +15,6 @@ import {
   X,
   Spline,
   Waypoints,
-  Sparkles,
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
@@ -33,7 +34,6 @@ const EXPORT_FORMATS = [
   { label: "JEF", format: "JEF", ext: "jef" },
   { label: "XXX", format: "XXX", ext: "xxx" },
   { label: "PNG", format: "PNG", ext: "png" },
-  { label: "PPES (project)", format: "PPES", ext: "ppes" },
 ];
 
 const OPENABLE = ["ppes", "ppes5", "pes", "svg"];
@@ -42,6 +42,8 @@ export default function App() {
   const { doc, busy, error, selectedIndex, clearError } = useDocumentStore();
   const newDocument = useDocumentStore((s) => s.newDocument);
   const openFile = useDocumentStore((s) => s.openFile);
+  const saveProject = useDocumentStore((s) => s.saveProject);
+  const projectPath = useDocumentStore((s) => s.projectPath);
   const refresh = useDocumentStore((s) => s.refresh);
   const deleteSelected = useDocumentStore((s) => s.deleteSelected);
   const duplicateSelected = useDocumentStore((s) => s.duplicateSelected);
@@ -54,10 +56,31 @@ export default function App() {
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const [dragOver, setDragOver] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // close the Export menu on outside click or Escape
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!exportRef.current?.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExportMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [exportMenuOpen]);
 
   // OS file drag & drop (Tauri intercepts HTML5 drop events)
   useEffect(() => {
@@ -95,6 +118,19 @@ export default function App() {
     if (path) await engine.exportFile(path, format);
   };
 
+  const handleSaveAs = async () => {
+    const path = await save({
+      filters: [{ name: "PES Project", extensions: ["ppes"] }],
+      defaultPath: projectPath ?? "untitled.ppes",
+    });
+    if (path) await saveProject(path);
+  };
+
+  const handleSave = async () => {
+    if (projectPath) await saveProject(projectPath);
+    else await handleSaveAs();
+  };
+
   // keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -112,6 +148,10 @@ export default function App() {
       } else if (mod && e.key.toLowerCase() === "d") {
         e.preventDefault();
         void duplicateSelected();
+      } else if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (e.shiftKey) void handleSaveAs();
+        else void handleSave();
       } else if (mod && e.key === "0") {
         e.preventDefault();
         requestFit();
@@ -119,7 +159,16 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, duplicateSelected, undo, redo, requestFit, viewMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    deleteSelected,
+    duplicateSelected,
+    undo,
+    redo,
+    requestFit,
+    viewMode,
+    projectPath,
+  ]);
 
   const selectedObj = doc?.objects.find((o) => o.index === selectedIndex);
 
@@ -140,24 +189,45 @@ export default function App() {
           icon={<FolderOpen size={16} />}
           onClick={() => void handleOpen()}
         />
-        <div className="group relative">
+        <div className="relative" ref={exportRef}>
           <ToolButton
             label="Export"
             icon={<Download size={16} />}
+            active={exportMenuOpen}
             disabled={!doc || doc.objects.length === 0}
+            onClick={() => setExportMenuOpen((v) => !v)}
           />
-          <div className="absolute left-0 top-full z-10 hidden min-w-40 flex-col rounded-md border border-neutral-200 bg-white py-1 shadow-lg group-hover:flex">
-            {EXPORT_FORMATS.map((f) => (
-              <button
-                key={f.format}
-                className="px-3 py-1.5 text-left hover:bg-blue-50"
-                onClick={() => void handleExport(f.format, f.ext)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          {exportMenuOpen && (
+            <div className="absolute left-0 top-full z-10 mt-1 flex min-w-36 flex-col rounded-md border border-neutral-200 bg-white py-1 shadow-lg">
+              {EXPORT_FORMATS.map((f) => (
+                <button
+                  key={f.format}
+                  className="px-3 py-1.5 text-left hover:bg-blue-50"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    void handleExport(f.format, f.ext);
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+
+        <Divider />
+        <ToolButton
+          label="Save"
+          icon={<Save size={16} />}
+          disabled={!doc}
+          onClick={() => void handleSave()}
+        />
+        <ToolButton
+          label="Save As"
+          icon={<SaveAll size={16} />}
+          disabled={!doc}
+          onClick={() => void handleSaveAs()}
+        />
 
         <Divider />
         <ToolButton
@@ -213,7 +283,7 @@ export default function App() {
         />
         <ToolButton
           label="Stitch View"
-          icon={<Sparkles size={16} />}
+          icon={<SewingMachineIcon size={17} />}
           active={viewMode === "stitch"}
           disabled={!doc || doc.objects.length === 0}
           onClick={() =>
@@ -326,19 +396,35 @@ function ToolButton({
 }) {
   return (
     <button
-      className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1 text-[10px] hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
+      className={`flex items-center justify-center rounded-md p-2 hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
         active ? "bg-blue-50 text-blue-600" : "text-neutral-600"
       } ${className}`}
       onClick={onClick}
       disabled={disabled}
       title={label}
+      aria-label={label}
     >
       {icon}
-      <span>{label}</span>
     </button>
   );
 }
 
 function Divider() {
   return <div className="mx-1 h-6 w-px bg-neutral-200" />;
+}
+
+/** Sewing/embroidery machine (จักรปัก) — ported from the old app's Stitch
+ *  Simulator toolbar button so Stitch View reads as the machine preview. */
+function SewingMachineIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M31,22v4c0,1.1-0.9,2-2,2H3c-1.1,0-2-0.9-2-2v-4c0-1.1,0.9-2,2-2h26C30.1,20,31,20.9,31,22z M30,5c-0.55,0-1,0.45-1,1v6c0,0.55,0.45,1,1,1s1-0.45,1-1V6C31,5.45,30.55,5,30,5z M3,9V5c0-1.1,0.9-2,2-2h21c1.1,0,2,0.9,2,2v14H18v-4c0-1.1-0.892-2.119-1.982-2.264l-5.024-0.67C10.958,13.135,10.077,14,9,14H8v2.182c0,0.276-0.224,0.5-0.5,0.5S7,16.458,7,16.182V14H6c-1.1,0-2-0.9-2-2v-1.141C3.406,10.433,3,9.738,3,9z M21,9c0,1.105,0.895,2,2,2s2-0.895,2-2c0-1.105-0.895-2-2-2S21,7.895,21,9z M21,15c0,1.105,0.895,2,2,2s2-0.895,2-2c0-1.105-0.895-2-2-2S21,13.895,21,15z M23,10c0.552,0,1-0.448,1-1c0-0.552-0.448-1-1-1s-1,0.448-1,1C22,9.552,22.448,10,23,10z M23,16c0.552,0,1-0.448,1-1c0-0.552-0.448-1-1-1s-1,0.448-1,1C22,15.552,22.448,16,23,16z" />
+    </svg>
+  );
 }

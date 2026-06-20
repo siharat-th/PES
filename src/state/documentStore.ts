@@ -6,6 +6,8 @@ interface DocumentState {
   doc: DocumentSnapshot | null;
   /** bumped whenever object pixels may have changed → ObjectsLayer refetches */
   imageVersion: number;
+  /** path of the open .ppes project (null = unsaved/new); drives Save vs Save As */
+  projectPath: string | null;
   /** multi-selection; last entry is the primary (shown in Properties) */
   selectedIndices: number[];
   selectedIndex: number;
@@ -14,6 +16,8 @@ interface DocumentState {
 
   newDocument: (wMm?: number, hMm?: number) => Promise<void>;
   openFile: (path: string) => Promise<void>;
+  /** write the whole document as a .ppes project to `path` and remember it */
+  saveProject: (path: string) => Promise<void>;
   refresh: () => Promise<void>;
   select: (index: number, additive?: boolean) => void;
   commitTransform: (
@@ -77,15 +81,38 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
   return {
     doc: null,
     imageVersion: 0,
+    projectPath: null,
     selectedIndices: [],
     selectedIndex: -1,
     busy: false,
     error: null,
 
-    newDocument: (wMm = 100, hMm = 100) =>
-      run(true, () => engine.newDocument(wMm, hMm)),
+    newDocument: async (wMm = 100, hMm = 100) => {
+      await run(true, () => engine.newDocument(wMm, hMm));
+      set({ projectPath: null });
+    },
 
-    openFile: (path) => run(true, () => engine.openFile(path)),
+    openFile: async (path) => {
+      await run(true, () => engine.openFile(path));
+      // Only project files become the active project; .pes/.svg are imports
+      // merged into the current document and must not claim the save path.
+      const ext = path.split(".").pop()?.toLowerCase();
+      if (!get().error && (ext === "ppes" || ext === "ppes5")) {
+        set({ projectPath: path });
+      }
+    },
+
+    saveProject: async (path) => {
+      set({ busy: true, error: null });
+      try {
+        await engine.exportFile(path, "PPES");
+        set({ projectPath: path });
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
 
     refresh: () => run(false, () => engine.getDocument()),
 
