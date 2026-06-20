@@ -14,6 +14,8 @@ import {
   Spline,
   Waypoints,
   Sparkles,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import EmbroideryStage from "./canvas/EmbroideryStage";
 import Sidebar from "./panels/Sidebar";
@@ -49,6 +51,8 @@ export default function App() {
   const requestFit = useViewportStore((s) => s.requestFit);
   const viewMode = useUiStore((s) => s.viewMode);
   const setViewMode = useUiStore((s) => s.setViewMode);
+  const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
+  const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
@@ -222,6 +226,19 @@ export default function App() {
             กำลังประมวลผล…
           </span>
         )}
+        <ToolButton
+          label="Panel"
+          icon={
+            rightPanelOpen ? (
+              <PanelRightClose size={16} />
+            ) : (
+              <PanelRightOpen size={16} />
+            )
+          }
+          active={rightPanelOpen}
+          onClick={toggleRightPanel}
+          className={busy ? "" : "ml-auto"}
+        />
       </div>
 
       {/* Error banner */}
@@ -247,7 +264,19 @@ export default function App() {
             </div>
           )}
         </div>
-        <Sidebar />
+        <div
+          className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out ${
+            rightPanelOpen ? "w-72" : "w-0"
+          }`}
+        >
+          <div
+            className={`h-full w-72 transition-transform duration-300 ease-in-out ${
+              rightPanelOpen ? "translate-x-0" : "translate-x-full"
+            }`}
+          >
+            <Sidebar />
+          </div>
+        </div>
         {dragOver && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-4 border-dashed border-blue-400 bg-blue-100/60">
             <span className="rounded-lg bg-white px-4 py-2 text-base font-medium text-blue-600 shadow">
@@ -286,18 +315,20 @@ function ToolButton({
   onClick,
   disabled,
   active,
+  className = "",
 }: {
   label: string;
   icon: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
+  className?: string;
 }) {
   return (
     <button
       className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1 text-[10px] hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
         active ? "bg-blue-50 text-blue-600" : "text-neutral-600"
-      }`}
+      } ${className}`}
       onClick={onClick}
       disabled={disabled}
       title={label}

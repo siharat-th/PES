@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Eye,
@@ -30,7 +31,15 @@ export default function LayerPanel() {
   const [overIdx, setOverIdx] = useState<number | null>(null);
   // cursor position for the floating drag preview (viewport coords)
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
-  const dragStart = useRef<{ idx: number; y: number } | null>(null);
+  // captured at grab time: the row's screen geometry so the ghost keeps the
+  // panel's X (and width) and only tracks the cursor vertically.
+  const dragStart = useRef<{
+    idx: number;
+    y: number;
+    left: number;
+    width: number;
+    grabDy: number;
+  } | null>(null);
   const didDrag = useRef(false);
 
   const objects = doc?.objects ?? [];
@@ -51,7 +60,14 @@ export default function LayerPanel() {
     if (e.button !== 0) return;
     // let the eye/lock/chevron toggles handle their own clicks
     if ((e.target as HTMLElement).closest("button")) return;
-    dragStart.current = { idx, y: e.clientY };
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragStart.current = {
+      idx,
+      y: e.clientY,
+      left: rect.left,
+      width: rect.width,
+      grabDy: e.clientY - rect.top,
+    };
     didDrag.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -175,25 +191,36 @@ export default function LayerPanel() {
         ))}
       </div>
 
-      {/* floating preview of the dragged layer, following the cursor */}
-      {draggedObj && dragPos && (
-        <div
-          className="pointer-events-none fixed z-50 flex w-60 items-center gap-2 rounded border border-blue-300 bg-white/95 px-2 py-1.5 shadow-xl"
-          style={{ left: dragPos.x + 12, top: dragPos.y + 8 }}
-        >
-          <LayerThumb index={draggedObj.index} version={imageVersion} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium">
-              {draggedObj.object_type}
-            </div>
-            {draggedObj.text && (
-              <div className="truncate text-[11px] text-neutral-500">
-                {draggedObj.text}
+      {/* Floating preview of the dragged layer, following the cursor.
+          Portaled to <body> so it escapes the sliding panel wrapper (its
+          transform/overflow-hidden would otherwise re-anchor and clip a
+          position:fixed child). */}
+      {draggedObj &&
+        dragPos &&
+        dragStart.current &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-50 flex items-center gap-2 rounded border border-blue-300 bg-white/95 px-2 py-1.5 shadow-xl"
+            style={{
+              left: dragStart.current.left,
+              width: dragStart.current.width,
+              top: dragPos.y - dragStart.current.grabDy,
+            }}
+          >
+            <LayerThumb index={draggedObj.index} version={imageVersion} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium">
+                {draggedObj.object_type}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+              {draggedObj.text && (
+                <div className="truncate text-[11px] text-neutral-500">
+                  {draggedObj.text}
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

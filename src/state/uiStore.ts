@@ -8,11 +8,14 @@ interface UiState {
   simIndex: number;
   simPlaying: boolean;
   simSpeed: number; // stitches advanced per frame
+  /** whether the right-hand panel (Properties/Layers) is shown */
+  rightPanelOpen: boolean;
 
   setViewMode: (m: ViewMode) => void;
   setSimIndex: (i: number) => void;
   setSimPlaying: (p: boolean) => void;
   setSimSpeed: (s: number) => void;
+  toggleRightPanel: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -20,6 +23,10 @@ export const useUiStore = create<UiState>((set) => ({
   simIndex: -1,
   simPlaying: false,
   simSpeed: 2,
+  rightPanelOpen: true,
+
+  toggleRightPanel: () =>
+    set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
 
   setViewMode: (viewMode) =>
     set(
