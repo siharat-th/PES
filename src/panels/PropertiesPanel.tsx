@@ -10,11 +10,11 @@ import * as engine from "../engine/EngineClient";
 import type { ObjectParameter } from "../engine/EngineClient";
 import type { BrotherColor, ColorBlockInfo } from "../engine/types";
 import {
-  Section,
+  Group,
   Row,
   NumberField,
   SelectField,
-  CheckboxField,
+  CheckRow,
   ColorField,
   PaletteGrid,
 } from "./fields";
@@ -143,7 +143,7 @@ export default function PropertiesPanel() {
   return (
     <div className="relative flex h-full flex-col overflow-y-auto text-sm">
       {/* header */}
-      <div className="border-b border-neutral-100 px-3 py-2">
+      <div className="border-b border-neutral-100 px-2.5 py-2">
         <div className="font-medium">{type}</div>
         <div className="mt-0.5 text-[11px] text-neutral-400">
           {(obj.width / 10).toFixed(1)} × {(obj.height / 10).toFixed(1)} mm
@@ -153,9 +153,8 @@ export default function PropertiesPanel() {
 
       {/* text editing (prop_ppeftext.ejs / prop_ttf.ejs) */}
       {isText && (
-        <>
-          <Section title="Text" />
-          <div className="flex gap-1.5 px-3 py-2">
+        <Group title="Text">
+          <div className="flex gap-1.5 px-2.5 py-1">
             <input
               className="h-7 min-w-0 flex-1 rounded border border-neutral-300 px-2 text-xs"
               value={textDraft}
@@ -204,13 +203,13 @@ export default function PropertiesPanel() {
               onChange={(v) => set("fontSize", v)}
             />
           </Row>
-        </>
+        </Group>
       )}
 
       {/* PPEF effects (prop_ppeftext.ejs lines 140-243) */}
       {type === "PPEF Text" && (
-        <>
-          <Row label="Effect">
+        <Group title="Effect">
+          <Row label="Style">
             <SelectField
               value={param.shapeIndex}
               options={TEXT_EFFECTS}
@@ -225,6 +224,7 @@ export default function PropertiesPanel() {
                   min={15}
                   max={90}
                   step={1}
+                  unit="°"
                   onCommit={(v) => set("textEffectAngle", v)}
                 />
               </Row>
@@ -239,19 +239,17 @@ export default function PropertiesPanel() {
               </Row>
             </>
           )}
-          <div className="flex gap-4 px-3 py-1.5">
-            <CheckboxField
-              label="Border"
-              checked={param.border}
-              onChange={(v) => set("border", v)}
-            />
-            <CheckboxField
-              label="Italic"
-              checked={param.italic}
-              onChange={(v) => set("italic", v)}
-            />
-          </div>
-          <Row label="Gap between letters">
+          <CheckRow
+            label="Border"
+            checked={param.border}
+            onChange={(v) => set("border", v)}
+          />
+          <CheckRow
+            label="Italic"
+            checked={param.italic}
+            onChange={(v) => set("italic", v)}
+          />
+          <Row label="Letter gap">
             <NumberField
               value={param.extraLetterSpace}
               min={-50}
@@ -260,7 +258,7 @@ export default function PropertiesPanel() {
               onCommit={(v) => set("extraLetterSpace", v)}
             />
           </Row>
-          <Row label="Gap distance">
+          <Row label="Word gap">
             <NumberField
               value={param.extraSpace}
               min={-200}
@@ -298,89 +296,154 @@ export default function PropertiesPanel() {
               </Row>
             </>
           )}
-        </>
+        </Group>
       )}
 
       {/* thread density (comp_thread.ejs) */}
       {(isText || type === "Satin Column") && (
-        <>
-          <Row label="Density (line/mm)">
+        <Group title="Thread">
+          <Row label="Density">
             <NumberField
               value={param.fillDensity}
               min={1}
               max={5}
               step={0.1}
+              unit="l/mm"
               onCommit={(v) => set("textDensity", v)}
             />
           </Row>
-          <Row label="Pull comp. (mm)">
+          <Row label="Pull comp.">
             <NumberField
               value={param.pullCompensate}
               min={-0.5}
               max={2}
               step={0.25}
+              unit="mm"
               onCommit={(v) => set("textPullCompensate", v)}
             />
           </Row>
-        </>
+        </Group>
       )}
 
       {/* Fill / Stroke (prop_ttf.ejs / prop_svg.ejs) */}
       {showFillStroke && (
         <>
-          <Section title="Fill" />
-          <Row label="Type">
-            <SelectField
-              value={param.fillTypeIndex}
-              options={FILL_TYPES}
-              onChange={(v) => set("fillType", v)}
-            />
-          </Row>
-          <Row label="Color">
-            <ColorField
-              palette={palette}
-              brotherIndex={param.fillColorIndex}
-              onPick={(c) => set("fillColor", c.index)}
-            />
-          </Row>
-          {param.fillTypeIndex === 1 && (
-            <>
-              <div className="px-3 py-1">
-                <CheckboxField
+          <Group title="Fill">
+            <Row label="Type">
+              <SelectField
+                value={param.fillTypeIndex}
+                options={FILL_TYPES}
+                onChange={(v) => set("fillType", v)}
+              />
+            </Row>
+            <Row label="Color">
+              <ColorField
+                palette={palette}
+                brotherIndex={param.fillColorIndex}
+                onPick={(c) => set("fillColor", c.index)}
+              />
+            </Row>
+            {param.fillTypeIndex === 1 && (
+              <>
+                <CheckRow
                   label="Underlay"
                   checked={param.fillUnderlay}
                   onChange={(v) => set("fillUnderlay", v)}
                 />
-              </div>
-              <Row label="Density (line/mm)">
-                <NumberField
-                  value={param.fillDensity}
-                  min={0.5}
-                  max={10}
-                  step={0.5}
-                  onCommit={(v) => set("fillDensity", v)}
-                />
-              </Row>
-              <Row label="Direction (°)">
-                <NumberField
-                  value={param.fillDirection}
-                  min={-90}
-                  max={90}
-                  step={5}
-                  onCommit={(v) => set("fillDirection", v)}
-                />
-              </Row>
-            </>
-          )}
+                <Row label="Density">
+                  <NumberField
+                    value={param.fillDensity}
+                    min={0.5}
+                    max={10}
+                    step={0.5}
+                    unit="l/mm"
+                    onCommit={(v) => set("fillDensity", v)}
+                  />
+                </Row>
+                <Row label="Direction">
+                  <NumberField
+                    value={param.fillDirection}
+                    min={-90}
+                    max={90}
+                    step={5}
+                    unit="°"
+                    onCommit={(v) => set("fillDirection", v)}
+                  />
+                </Row>
+              </>
+            )}
+          </Group>
 
-          <Section title="Stroke" />
-          <Row label="Type">
-            <SelectField
-              value={param.strokeTypeIndex}
-              options={STROKE_TYPES}
-              onChange={(v) => set("strokeType", v)}
-            />
-          </Row>
+          <Group title="Stroke">
+            <Row label="Type">
+              <SelectField
+                value={param.strokeTypeIndex}
+                options={STROKE_TYPES}
+                onChange={(v) => set("strokeType", v)}
+              />
+            </Row>
+            <Row label="Color">
+              <ColorField
+                palette={palette}
+                brotherIndex={param.colorIndex}
+                onPick={(c) => set("strokeColor", c.index)}
+              />
+            </Row>
+            {isRunningStroke(param.strokeTypeIndex) && (
+              <>
+                <Row label="Run pitch">
+                  <NumberField
+                    value={param.strokeRunPitch}
+                    min={0.2}
+                    max={5}
+                    step={0.1}
+                    unit="mm"
+                    onCommit={(v) => set("strokeRunPitch", v)}
+                  />
+                </Row>
+                <Row label="Inset">
+                  <NumberField
+                    value={param.strokeRunningInset}
+                    min={-2}
+                    max={10}
+                    step={0.1}
+                    unit="mm"
+                    onCommit={(v) => set("strokeRunningInset", v)}
+                  />
+                </Row>
+              </>
+            )}
+            {isSatinStroke(param.strokeTypeIndex) && (
+              <>
+                <Row label="Width">
+                  <NumberField
+                    value={param.strokeWidth}
+                    min={0.25}
+                    max={10}
+                    step={0.25}
+                    unit="mm"
+                    onCommit={(v) => set("strokeWidth", v)}
+                  />
+                </Row>
+                <Row label="Density">
+                  <NumberField
+                    value={param.strokeDensity}
+                    min={0.25}
+                    max={10}
+                    step={0.25}
+                    unit="l/mm"
+                    onCommit={(v) => set("strokeDensity", v)}
+                  />
+                </Row>
+              </>
+            )}
+          </Group>
+        </>
+      )}
+
+      {/* Satin column color (prop_satincolumn.ejs) */}
+      {type === "Satin Column" && (
+        <Group title="Color">
           <Row label="Color">
             <ColorField
               palette={palette}
@@ -388,68 +451,12 @@ export default function PropertiesPanel() {
               onPick={(c) => set("strokeColor", c.index)}
             />
           </Row>
-          {isRunningStroke(param.strokeTypeIndex) && (
-            <>
-              <Row label="Run pitch (mm)">
-                <NumberField
-                  value={param.strokeRunPitch}
-                  min={0.2}
-                  max={5}
-                  step={0.1}
-                  onCommit={(v) => set("strokeRunPitch", v)}
-                />
-              </Row>
-              <Row label="Inset (mm)">
-                <NumberField
-                  value={param.strokeRunningInset}
-                  min={-2}
-                  max={10}
-                  step={0.1}
-                  onCommit={(v) => set("strokeRunningInset", v)}
-                />
-              </Row>
-            </>
-          )}
-          {isSatinStroke(param.strokeTypeIndex) && (
-            <>
-              <Row label="Width (mm)">
-                <NumberField
-                  value={param.strokeWidth}
-                  min={0.25}
-                  max={10}
-                  step={0.25}
-                  onCommit={(v) => set("strokeWidth", v)}
-                />
-              </Row>
-              <Row label="Density (line/mm)">
-                <NumberField
-                  value={param.strokeDensity}
-                  min={0.25}
-                  max={10}
-                  step={0.25}
-                  onCommit={(v) => set("strokeDensity", v)}
-                />
-              </Row>
-            </>
-          )}
-        </>
-      )}
-
-      {/* Satin column color (prop_satincolumn.ejs) */}
-      {type === "Satin Column" && (
-        <Row label="Color">
-          <ColorField
-            palette={palette}
-            brotherIndex={param.colorIndex}
-            onPick={(c) => set("strokeColor", c.index)}
-          />
-        </Row>
+        </Group>
       )}
 
       {/* Path operations (Prop_PathOpsHandler) — geometry editing per path */}
       {obj.object_type !== "Stitch" && pathCount > 0 && (
-        <>
-          <Section title="Path operations" />
+        <Group title="Path operations" defaultOpen={false}>
           <Row label={`Path (${pathCount})`}>
             <SelectField
               value={activePath}
@@ -460,16 +467,17 @@ export default function PropertiesPanel() {
               onChange={setActivePath}
             />
           </Row>
-          <Row label="Inset / Outset (mm)">
+          <Row label="Inset / Outset">
             <NumberField
               value={insetMm}
               min={0.1}
               max={20}
               step={0.1}
+              unit="mm"
               onCommit={setInsetMm}
             />
           </Row>
-          <div className="grid grid-cols-2 gap-1.5 px-3 py-1.5">
+          <div className="grid grid-cols-2 gap-1.5 px-2.5 py-1.5">
             <button
               className="btn text-xs"
               onClick={() =>
@@ -533,116 +541,118 @@ export default function PropertiesPanel() {
               Erase Under
             </button>
           </div>
-        </>
+        </Group>
       )}
 
-      {/* Stitch panel: flip + thread colors (prop_pes.ejs) */}
-      <Section title="Transform" />
-      <div className="flex gap-2 px-3 py-2">
-        <button
-          className="btn flex items-center gap-1.5 text-xs"
-          onClick={() =>
-            void applyPathEdit(() => engine.flipObject(selectedIndex, false))
-          }
-        >
-          <FlipVertical2 size={14} /> Vertical Flip
-        </button>
-        <button
-          className="btn flex items-center gap-1.5 text-xs"
-          onClick={() =>
-            void applyPathEdit(() => engine.flipObject(selectedIndex, true))
-          }
-        >
-          <FlipHorizontal2 size={14} /> Horizontal Flip
-        </button>
-      </div>
-
-      <Section
-        title={`Thread colors${blocks.length ? ` (${blocks.length})` : ""}`}
-      />
-      <div className="relative">
-        {blocks.length === 0 && (
-          <div className="px-3 py-2 text-[11px] text-neutral-400">
-            object นี้ยังไม่มี stitch block
-          </div>
-        )}
-        {blocks.map((b) => (
-          <div
-            key={b.index}
-            className={`flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-3 py-1.5 ${
-              b.index === activeBlock
-                ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
-                : "hover:bg-neutral-50"
-            }`}
-            onClick={() => setActiveBlock(b.index)}
+      {/* Transform: flip (prop_pes.ejs) */}
+      <Group title="Transform">
+        <div className="flex gap-2 px-2.5 py-1">
+          <button
+            className="btn flex items-center gap-1.5 text-xs"
+            onClick={() =>
+              void applyPathEdit(() => engine.flipObject(selectedIndex, false))
+            }
           >
-            <button
-              className="h-6 w-6 shrink-0 rounded-sm border border-neutral-300 hover:scale-110 hover:border-blue-400"
-              style={{ backgroundColor: b.hex }}
-              title="เปลี่ยนสี"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveBlock(b.index);
-                setBlockPickerOpen(true);
-              }}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs">
-                {palette.find((c) => c.index === b.brother_index)?.name ?? b.hex}
-              </div>
-              <div className="text-[10px] text-neutral-400">
-                {b.stitch_count.toLocaleString()} stitches
+            <FlipVertical2 size={14} /> Vertical Flip
+          </button>
+          <button
+            className="btn flex items-center gap-1.5 text-xs"
+            onClick={() =>
+              void applyPathEdit(() => engine.flipObject(selectedIndex, true))
+            }
+          >
+            <FlipHorizontal2 size={14} /> Horizontal Flip
+          </button>
+        </div>
+      </Group>
+
+      <Group
+        title={`Thread colors${blocks.length ? ` (${blocks.length})` : ""}`}
+      >
+        <div className="relative">
+          {blocks.length === 0 && (
+            <div className="px-2.5 py-1 text-[11px] text-neutral-400">
+              object นี้ยังไม่มี stitch block
+            </div>
+          )}
+          {blocks.map((b) => (
+            <div
+              key={b.index}
+              className={`flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-2.5 py-1.5 ${
+                b.index === activeBlock
+                  ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+                  : "hover:bg-neutral-50"
+              }`}
+              onClick={() => setActiveBlock(b.index)}
+            >
+              <button
+                className="h-6 w-6 shrink-0 rounded-sm border border-neutral-300 hover:scale-110 hover:border-blue-400"
+                style={{ backgroundColor: b.hex }}
+                title="เปลี่ยนสี"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveBlock(b.index);
+                  setBlockPickerOpen(true);
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs">
+                  {palette.find((c) => c.index === b.brother_index)?.name ?? b.hex}
+                </div>
+                <div className="text-[10px] text-neutral-400">
+                  {b.stitch_count.toLocaleString()} stitches
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-        {blocks.length > 1 && (
-          <div className="flex justify-center gap-2 px-3 py-2">
-            <button
-              className="btn flex items-center gap-1 text-xs"
-              disabled={activeBlock <= 0}
-              onClick={() => {
-                void applyPathEdit(() =>
-                  engine.swapColorBlock(selectedIndex, activeBlock, -1),
-                );
-                setActiveBlock((i) => i - 1);
-              }}
-            >
-              <ChevronUp size={14} /> Move Up
-            </button>
-            <button
-              className="btn flex items-center gap-1 text-xs"
-              disabled={activeBlock < 0 || activeBlock >= blocks.length - 1}
-              onClick={() => {
-                void applyPathEdit(() =>
-                  engine.swapColorBlock(selectedIndex, activeBlock, +1),
-                );
-                setActiveBlock((i) => i + 1);
-              }}
-            >
-              <ChevronDown size={14} /> Move Down
-            </button>
-          </div>
-        )}
-        {blockPickerOpen && activeBlock >= 0 && (
-          <div className="absolute inset-x-2 top-2 z-20">
-            <PaletteGrid
-              palette={palette}
-              current={blocks[activeBlock]?.brother_index}
-              onPick={(c) => {
-                setBlockPickerOpen(false);
-                void applyPathEdit(() =>
-                  engine.setColorBlock(selectedIndex, activeBlock, c.index),
-                );
-              }}
-              onClose={() => setBlockPickerOpen(false)}
-            />
-          </div>
-        )}
-      </div>
+          ))}
+          {blocks.length > 1 && (
+            <div className="flex justify-center gap-2 px-2.5 py-2">
+              <button
+                className="btn flex items-center gap-1 text-xs"
+                disabled={activeBlock <= 0}
+                onClick={() => {
+                  void applyPathEdit(() =>
+                    engine.swapColorBlock(selectedIndex, activeBlock, -1),
+                  );
+                  setActiveBlock((i) => i - 1);
+                }}
+              >
+                <ChevronUp size={14} /> Move Up
+              </button>
+              <button
+                className="btn flex items-center gap-1 text-xs"
+                disabled={activeBlock < 0 || activeBlock >= blocks.length - 1}
+                onClick={() => {
+                  void applyPathEdit(() =>
+                    engine.swapColorBlock(selectedIndex, activeBlock, +1),
+                  );
+                  setActiveBlock((i) => i + 1);
+                }}
+              >
+                <ChevronDown size={14} /> Move Down
+              </button>
+            </div>
+          )}
+          {blockPickerOpen && activeBlock >= 0 && (
+            <div className="absolute inset-x-2 top-2 z-20">
+              <PaletteGrid
+                palette={palette}
+                current={blocks[activeBlock]?.brother_index}
+                onPick={(c) => {
+                  setBlockPickerOpen(false);
+                  void applyPathEdit(() =>
+                    engine.setColorBlock(selectedIndex, activeBlock, c.index),
+                  );
+                }}
+                onClose={() => setBlockPickerOpen(false)}
+              />
+            </div>
+          )}
+        </div>
+      </Group>
 
       {/* delete */}
-      <div className="mt-auto px-3 py-3">
+      <div className="mt-auto px-2.5 py-3">
         <button
           className="w-full rounded bg-red-500 py-1.5 text-xs font-medium text-white hover:bg-red-600"
           onClick={() => void deleteSelected()}

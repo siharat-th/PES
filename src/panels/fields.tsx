@@ -1,17 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { ChevronRight, ChevronUp, ChevronDown } from "lucide-react";
 import type { BrotherColor } from "../engine/types";
 
-/** Shared form controls for property panels — visual style follows the old
- *  app's label-left / control-right rows with ± stepper inputs. */
+/** Shared form controls for property panels — collapsible groups with
+ *  right-aligned labels on the left and macOS-style stacked spinners,
+ *  matching the reference design. */
 
-export function Section({ title }: { title: string }) {
+/** Collapsible section. Header shows a rotating chevron; click toggles its
+ *  body. `defaultOpen` controls the initial state. */
+export function Group({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-b border-neutral-100 bg-neutral-50 px-3 py-1 text-xs font-semibold text-neutral-500">
-      {title}
+    <div className="border-b border-neutral-100">
+      <button
+        className="flex w-full items-center gap-1 bg-neutral-50 px-2.5 py-1.5 text-left text-xs font-semibold text-neutral-500 hover:bg-neutral-100"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ChevronRight
+          size={13}
+          className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        <span>{title}</span>
+      </button>
+      {open && <div className="py-1">{children}</div>}
     </div>
   );
 }
+
+/** Fixed width of the right-hand control column — shared so checkbox rows
+ *  line up with dropdowns/spinners. */
+const CONTROL_COL = "w-[150px] shrink-0";
 
 export function Row({
   label,
@@ -21,9 +47,34 @@ export function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-1.5">
-      <span className="w-1/2 text-xs text-neutral-600">{label}</span>
-      <div className="flex w-1/2 items-center justify-end">{children}</div>
+    <div className="flex items-center gap-2 px-2.5 py-1">
+      <span className="flex-1 text-right text-xs text-neutral-500">
+        {label}:
+      </span>
+      <div className={`flex items-center justify-end ${CONTROL_COL}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Checkbox whose box aligns with the left edge of the control column
+ *  (same x as dropdowns/spinners), rather than the panel's right edge. */
+export function CheckRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1">
+      <span className="flex-1" />
+      <div className={CONTROL_COL}>
+        <CheckboxField label={label} checked={checked} onChange={onChange} />
+      </div>
     </div>
   );
 }
@@ -33,46 +84,69 @@ export function NumberField({
   min,
   max,
   step,
+  unit,
   onCommit,
 }: {
   value: number;
   min: number;
   max: number;
   step: number;
+  unit?: string;
   onCommit: (v: number) => void;
 }) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
 
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  // keep the displayed precision in step with the step size
+  const round = (v: number) => {
+    const dp = (String(step).split(".")[1] ?? "").length;
+    return parseFloat(v.toFixed(dp));
+  };
   const commit = (v: number) => {
-    if (!isNaN(v) && v !== value) onCommit(clamp(v));
+    if (!isNaN(v) && v !== value) onCommit(clamp(round(v)));
     else setText(String(value));
   };
 
   return (
-    <div className="flex h-6 items-stretch overflow-hidden rounded border border-neutral-300">
-      <button
-        className="bg-neutral-100 px-1 text-neutral-500 hover:bg-neutral-200"
-        onClick={() => commit(value - step)}
-      >
-        <Minus size={11} />
-      </button>
+    <div className="flex h-7 w-full items-stretch overflow-hidden rounded border border-neutral-300 bg-white focus-within:border-blue-400">
       <input
-        className="w-14 bg-white text-center text-xs outline-none"
+        className="min-w-0 flex-1 bg-transparent pl-2 text-right text-xs tabular-nums outline-none"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => commit(parseFloat(text))}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            commit(value + step);
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            commit(value - step);
+          }
         }}
       />
-      <button
-        className="bg-neutral-100 px-1 text-neutral-500 hover:bg-neutral-200"
-        onClick={() => commit(value + step)}
-      >
-        <Plus size={11} />
-      </button>
+      {unit && (
+        <span className="flex items-center px-1 text-[11px] text-neutral-400">
+          {unit}
+        </span>
+      )}
+      <div className="flex w-4 flex-col border-l border-neutral-200">
+        <button
+          tabIndex={-1}
+          className="flex flex-1 items-center justify-center text-neutral-500 hover:bg-neutral-100"
+          onClick={() => commit(value + step)}
+        >
+          <ChevronUp size={10} />
+        </button>
+        <button
+          tabIndex={-1}
+          className="flex flex-1 items-center justify-center border-t border-neutral-200 text-neutral-500 hover:bg-neutral-100"
+          onClick={() => commit(value - step)}
+        >
+          <ChevronDown size={10} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -88,7 +162,7 @@ export function SelectField<T extends number | string>({
 }) {
   return (
     <select
-      className="h-6 w-full rounded border border-neutral-300 bg-white px-1 text-xs"
+      className="h-7 w-full rounded border border-neutral-300 bg-white px-1.5 text-xs"
       value={String(value)}
       onChange={(e) => {
         const raw = e.target.value;
@@ -141,7 +215,7 @@ export function ColorField({
   return (
     <div className="relative w-full">
       <button
-        className="flex h-6 w-full items-center gap-1.5 rounded border border-neutral-300 bg-white px-1.5 text-xs hover:border-blue-300"
+        className="flex h-7 w-full items-center gap-1.5 rounded border border-neutral-300 bg-white px-1.5 text-xs hover:border-blue-300"
         onClick={() => setOpen(!open)}
       >
         <span

@@ -13,7 +13,7 @@ export default function Sidebar() {
   const [tab, setTab] = useState<TabId>("layers");
 
   return (
-    <div className="flex h-full w-64 flex-col border-l border-neutral-200 bg-white">
+    <div className="flex h-full w-72 flex-col border-l border-neutral-200 bg-white">
       <div className="flex border-b border-neutral-200">
         {TABS.map((t) => (
           <button
