@@ -89,6 +89,25 @@ mod ffi {
         cp2y: f32,
     }
 
+    /// One editable needle point (WORLD units; object rotation folded in).
+    #[derive(Debug, Clone, Serialize)]
+    struct StitchPoint {
+        x: f32,
+        y: f32,
+        /// jump/trim point (machine moves without stitching) rather than a needle drop
+        jump: bool,
+    }
+
+    /// One stitch block for StitchEdit. `kind`: 0 = fill, 1 = stroke;
+    /// `block_index` indexes into that object's fill/stroke block vector.
+    #[derive(Debug, Clone, Serialize)]
+    struct StitchBlock {
+        kind: i32,
+        block_index: i32,
+        hex: String,
+        points: Vec<StitchPoint>,
+    }
+
     unsafe extern "C++" {
         include!("pes_ffi.h");
 
@@ -154,6 +173,37 @@ mod ffi {
         ) -> bool;
         fn insert_path_node(obj_index: i32, path_index: i32, node_index: i32, t: f32) -> bool;
         fn delete_path_node(obj_index: i32, path_index: i32, node_index: i32) -> bool;
+
+        fn get_stitch_points(obj_index: i32) -> Vec<StitchBlock>;
+        fn move_stitch_point(
+            obj_index: i32,
+            kind: i32,
+            block_index: i32,
+            point_index: i32,
+            world_dx: f32,
+            world_dy: f32,
+        ) -> bool;
+        fn insert_stitch_point(
+            obj_index: i32,
+            kind: i32,
+            block_index: i32,
+            point_index: i32,
+        ) -> bool;
+        fn insert_stitch_point_at(
+            obj_index: i32,
+            kind: i32,
+            block_index: i32,
+            after_index: i32,
+            world_x: f32,
+            world_y: f32,
+        ) -> bool;
+        fn delete_stitch_point(
+            obj_index: i32,
+            kind: i32,
+            block_index: i32,
+            point_index: i32,
+        ) -> bool;
+
         fn path_op(obj_index: i32, path_index: i32, op: &str, value: f32) -> bool;
         fn set_param_num(obj_index: i32, key: &str, value: f32) -> bool;
         fn set_param_bool(obj_index: i32, key: &str, value: bool) -> bool;
@@ -161,7 +211,10 @@ mod ffi {
     }
 }
 
-pub use ffi::{BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchData};
+pub use ffi::{
+    BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchBlock, StitchData,
+    StitchPoint,
+};
 
 static ENGINE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -352,6 +405,54 @@ impl Engine<'_> {
 
     pub fn delete_path_node(&self, obj_index: i32, path_index: i32, node_index: i32) -> bool {
         ffi::delete_path_node(obj_index, path_index, node_index)
+    }
+
+    pub fn stitch_points(&self, obj_index: i32) -> Vec<StitchBlock> {
+        ffi::get_stitch_points(obj_index)
+    }
+
+    pub fn move_stitch_point(
+        &self,
+        obj_index: i32,
+        kind: i32,
+        block_index: i32,
+        point_index: i32,
+        dx: f32,
+        dy: f32,
+    ) -> bool {
+        ffi::move_stitch_point(obj_index, kind, block_index, point_index, dx, dy)
+    }
+
+    pub fn insert_stitch_point(
+        &self,
+        obj_index: i32,
+        kind: i32,
+        block_index: i32,
+        point_index: i32,
+    ) -> bool {
+        ffi::insert_stitch_point(obj_index, kind, block_index, point_index)
+    }
+
+    pub fn insert_stitch_point_at(
+        &self,
+        obj_index: i32,
+        kind: i32,
+        block_index: i32,
+        after_index: i32,
+        x: f32,
+        y: f32,
+    ) -> bool {
+        ffi::insert_stitch_point_at(obj_index, kind, block_index, after_index, x, y)
+    }
+
+    pub fn delete_stitch_point(
+        &self,
+        obj_index: i32,
+        kind: i32,
+        block_index: i32,
+        point_index: i32,
+    ) -> bool {
+        ffi::delete_stitch_point(obj_index, kind, block_index, point_index)
     }
 
     pub fn path_op(&self, obj_index: i32, path_index: i32, op: &str, value: f32) -> bool {
@@ -732,6 +833,72 @@ mod tests {
             assert_eq!(n1.len(), n0.len() - 1, "delete should remove exactly one node");
             let s1 = eng.stitch_data(idx).total_points;
             assert!(s1 > 0, "PPEF stitches vanished after delete: {s0} -> {s1}");
+        });
+    }
+
+    /// StitchEdit: moving/inserting/deleting a needle point edits the block
+    /// in place (no regeneration) and keeps the object's stitches intact.
+    #[test]
+    fn stitch_point_edit_move_insert_delete() {
+        with_engine(|eng| {
+            let idx = load_ppef_fixture(eng);
+            assert!(eng.update_ppef_text(idx));
+            // fixture is unrotated, so world coords == stored vertices 1:1
+            assert_eq!(eng.object_snapshot(idx).rotate_degree, 0.0);
+
+            let blocks0 = eng.stitch_points(idx);
+            assert!(!blocks0.is_empty(), "no stitch blocks to edit");
+            // the richest block (most points) — kind/index address it stably
+            let b = blocks0
+                .iter()
+                .max_by_key(|b| b.points.len())
+                .expect("no blocks");
+            assert!(b.points.len() >= 3, "block too small to exercise");
+            let (kind, block) = (b.kind, b.block_index);
+            let n0 = b.points.len();
+            let s0 = eng.stitch_data(idx).total_points;
+            let (x1, y1) = (b.points[1].x, b.points[1].y);
+
+            // MOVE point 1
+            assert!(eng.move_stitch_point(idx, kind, block, 1, 50.0, -30.0));
+            let after = |eng: &Engine| {
+                eng.stitch_points(idx)
+                    .into_iter()
+                    .find(|x| x.kind == kind && x.block_index == block)
+                    .expect("block vanished")
+            };
+            let bm = after(eng);
+            assert_eq!(bm.points.len(), n0, "move must not change count");
+            assert!(
+                (bm.points[1].x - (x1 + 50.0)).abs() < 0.5
+                    && (bm.points[1].y - (y1 - 30.0)).abs() < 0.5,
+                "point did not move as expected"
+            );
+            assert_eq!(
+                eng.stitch_data(idx).total_points,
+                s0,
+                "move must not add/drop stitches"
+            );
+
+            // INSERT near point 1 → exactly one more point in the block
+            assert!(eng.insert_stitch_point(idx, kind, block, 1));
+            assert_eq!(after(eng).points.len(), n0 + 1, "insert should add one");
+
+            // DELETE point 1 → back to original count
+            assert!(eng.delete_stitch_point(idx, kind, block, 1));
+            assert_eq!(after(eng).points.len(), n0, "delete should remove one");
+            assert!(eng.stitch_data(idx).total_points > 0, "stitches vanished");
+
+            // INSERT-AT a world position after point 0 (double-click on a line)
+            let b0 = after(eng);
+            let (tx, ty) = (b0.points[0].x + 5.0, b0.points[0].y - 7.0);
+            assert!(eng.insert_stitch_point_at(idx, kind, block, 0, tx, ty));
+            let bz = after(eng);
+            assert_eq!(bz.points.len(), n0 + 1, "insert_at should add one");
+            assert!(
+                (bz.points[1].x - tx).abs() < 0.5 && (bz.points[1].y - ty).abs() < 0.5,
+                "insert_at point not placed at the requested world position"
+            );
         });
     }
 

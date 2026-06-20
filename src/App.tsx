@@ -12,6 +12,7 @@ import {
   Maximize,
   X,
   Spline,
+  Waypoints,
   Sparkles,
 } from "lucide-react";
 import EmbroideryStage from "./canvas/EmbroideryStage";
@@ -97,7 +98,8 @@ export default function App() {
       const typing = tag === "INPUT" || tag === "TEXTAREA";
       const mod = e.metaKey || e.ctrlKey;
       if (!typing && (e.key === "Delete" || e.key === "Backspace")) {
-        if (viewMode === "pathEdit") return; // PathEditLayer deletes the node
+        // the edit layers handle Delete (remove node / stitch point)
+        if (viewMode === "pathEdit" || viewMode === "stitchEdit") return;
         void deleteSelected();
       } else if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -197,6 +199,15 @@ export default function App() {
           }
         />
         <ToolButton
+          label="Edit Stitches"
+          icon={<Waypoints size={16} />}
+          active={viewMode === "stitchEdit"}
+          disabled={selectedIndex < 0}
+          onClick={() =>
+            setViewMode(viewMode === "stitchEdit" ? "design" : "stitchEdit")
+          }
+        />
+        <ToolButton
           label="Stitch View"
           icon={<Sparkles size={16} />}
           active={viewMode === "stitch"}
@@ -225,11 +236,16 @@ export default function App() {
 
       {/* Workspace */}
       <div className="relative flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1">
             <EmbroideryStage />
           </div>
           {viewMode === "stitch" && <SimulatorBar />}
+          {viewMode === "stitchEdit" && (
+            <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-neutral-900/80 px-4 py-1.5 text-[11px] text-neutral-200 shadow-lg ring-1 ring-white/10">
+              ลากจุดเพื่อย้าย · <b>ดับเบิลคลิกที่เส้น</b> แทรกจุด · <b>Delete</b> ลบจุด
+            </div>
+          )}
         </div>
         <Sidebar />
         {dragOver && (

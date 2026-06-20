@@ -10,6 +10,8 @@ struct BrotherColor;
 struct ColorBlockInfo;
 struct StitchData;
 struct PathNode;
+struct StitchPoint;
+struct StitchBlock;
 
 void set_resource_path(rust::Str path);
 
@@ -75,6 +77,23 @@ bool insert_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
 // Delete the anchor command at node_index (refuses moveTo/close or collapsing
 // a subpath below 2 anchors).
 bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index);
+
+// StitchEdit mode — edits the raw needle points of an object's stitch blocks
+// (fillBlocks = kind 0, strokeBlocks = kind 1). Points are reported/moved in
+// WORLD coordinates (the object's display rotation is folded in here). Unlike
+// PathEdit these are NOT regenerated: the blocks ARE the data.
+rust::Vec<StitchBlock> get_stitch_points(int32_t obj_index);
+bool move_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                       int32_t point_index, float world_dx, float world_dy);
+// Insert a needle point at the midpoint of the segment after point_index (or
+// before it when point_index is the last point), mirroring the old StitchEdit.
+bool insert_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                         int32_t point_index);
+// Insert a needle point at a WORLD position, right after after_index.
+bool insert_stitch_point_at(int32_t obj_index, int32_t kind, int32_t block_index,
+                            int32_t after_index, float world_x, float world_y);
+bool delete_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                         int32_t point_index);
 
 // op: inset | outset | simplify | unite_next | separate | erase_under | up | down
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op, float value);

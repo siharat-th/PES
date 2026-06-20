@@ -47,6 +47,16 @@ Tauri 2 (macOS + Windows)
 - **TTF text editing แบบ native** (SkTypeface::MakeFromData + SkTextUtils::GetPath, 426 ฟอนต์, ต้อง link skshaper+skunicode) + test
 - Path operations (inset/outset/simplify/unite/separate/erase under)
 
+### ✅ Slice 3 — PathEdit (เสร็จ 2026-06-20)
+- โหมดแก้ node ของ vector path: ลาก anchor + bezier handle, double-click แทรก node, Delete ลบ node (live drag preview, regen stitch ตอนปล่อย)
+
+### ✅ Slice 4 — StitchEdit (เสร็จ 2026-06-20)
+- โหมดแก้จุดเข็มดิบราย object: อ่าน/ย้าย/แทรก/ลบจุดใน `fillBlocks`(kind 0)/`strokeBlocks`(kind 1)
+- FFI: `get_stitch_points` / `move_stitch_point` / `insert_stitch_point` / `delete_stitch_point` (พิกัด world, fold display-rotation รอบ bbox center เหมือน PathEdit) — port จาก `PesStitchEdit` + `PES5_StitchEdit*` (PesSatinColumn.cpp / PES5Command.cpp)
+- บล็อก = ตัวข้อมูลจริง → **ไม่ regen** แค่ mutate + `recalculate()`; insert คงค่า `types[]` ให้ขนาน (จุดใหม่ = NORMAL_STITCH)
+- UI: `StitchEditLayer` (Shape เดียววาดเส้น+จุดทั้งหมด, Rect โปร่งใสรับคลิกเลือกจุดใกล้สุด, handle ลากได้, hover ring); toolbar "Edit Stitches"; แก้ undoable 1 step/gesture
+- Test: `stitch_point_edit_move_insert_delete`
+
 ### ▶ Milestone ถัดไป (Phase 1 ต่อ)
 1. ตรวจ fidelity transform กับแอปเดิม (scale semantics ของ pesData.scale ที่ไม่ scalable, rotate + stitch regen)
 2. Undo/Redo (Rust command stack ตาม PESUndoRedoCommand)

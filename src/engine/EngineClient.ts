@@ -5,6 +5,7 @@ import type {
   DocumentSnapshot,
   PathInfo,
   PathNode,
+  StitchEditBlock,
 } from "./types";
 
 export async function newDocument(
@@ -131,6 +132,71 @@ export async function deletePathNode(
   nodeIndex: number,
 ): Promise<DocumentSnapshot> {
   return invoke("delete_path_node", { index, pathIndex, nodeIndex });
+}
+
+/** Needle points of an object's stitch blocks (world coords) for StitchEdit. */
+export async function getStitchPoints(
+  index: number,
+): Promise<StitchEditBlock[]> {
+  return invoke("get_stitch_points", { index });
+}
+
+/** Move one needle point by a world delta (kind 0=fill, 1=stroke). */
+export async function moveStitchPoint(
+  index: number,
+  kind: number,
+  blockIndex: number,
+  pointIndex: number,
+  dx: number,
+  dy: number,
+): Promise<DocumentSnapshot> {
+  return invoke("move_stitch_point", {
+    index,
+    kind,
+    blockIndex,
+    pointIndex,
+    dx,
+    dy,
+  });
+}
+
+/** Insert a needle point near pointIndex. */
+export async function insertStitchPoint(
+  index: number,
+  kind: number,
+  blockIndex: number,
+  pointIndex: number,
+): Promise<DocumentSnapshot> {
+  return invoke("insert_stitch_point", { index, kind, blockIndex, pointIndex });
+}
+
+/** Insert a needle point at a world position, right after afterIndex. */
+export async function insertStitchPointAt(
+  index: number,
+  kind: number,
+  blockIndex: number,
+  afterIndex: number,
+  x: number,
+  y: number,
+): Promise<DocumentSnapshot> {
+  return invoke("insert_stitch_point_at", {
+    index,
+    kind,
+    blockIndex,
+    afterIndex,
+    x,
+    y,
+  });
+}
+
+/** Delete the needle point at pointIndex. */
+export async function deleteStitchPoint(
+  index: number,
+  kind: number,
+  blockIndex: number,
+  pointIndex: number,
+): Promise<DocumentSnapshot> {
+  return invoke("delete_stitch_point", { index, kind, blockIndex, pointIndex });
 }
 
 export async function getBrotherPalette(): Promise<BrotherColor[]> {

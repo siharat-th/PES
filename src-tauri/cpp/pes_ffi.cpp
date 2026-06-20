@@ -1068,4 +1068,159 @@ bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index)
     return true;
 }
 
+// --- StitchEdit -------------------------------------------------------------
+// Port of PesStitchEdit (apps2/1080_PES5Template/src/Utils/PesSatinColumn.cpp)
+// + the PES5_StitchEdit* command flow. The object's needle points live in
+// fillBlocks (kind 0) / strokeBlocks (kind 1); each block is a polyline of
+// pesVec2f plus a parallel `types` array (jump/normal flags). Stitches are
+// stored unrotated, so we fold the display rotation in/out around the bbox
+// center — exactly like the PathEdit ops above. The blocks are the source of
+// truth (no regeneration), so an edit just mutates them and recalculates the
+// cached totals/bbox.
+
+namespace {
+
+pesStitchBlockList* stitchBlockListOf(pesData* pes, int32_t kind) {
+    if (kind == 0) return &pes->fillBlocks;
+    if (kind == 1) return &pes->strokeBlocks;
+    return nullptr;
+}
+
+// Resolve (obj,kind,block,point) to the vertex vector + index, or null block.
+pesStitchBlock* stitchBlockAt(int32_t obj_index, int32_t kind, int32_t block_index) {
+    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
+        return nullptr;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    pesStitchBlockList* list = stitchBlockListOf(pes, kind);
+    if (!list || block_index < 0 || block_index >= (int32_t)list->size())
+        return nullptr;
+    return &(*list)[block_index];
+}
+
+} // namespace
+
+rust::Vec<StitchBlock> get_stitch_points(int32_t obj_index) {
+    rust::Vec<StitchBlock> out;
+    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
+        return out;
+    auto data = doc()->getDataObject(obj_index);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    pesVec2f center = data->getBoundingBox().getCenter();
+    auto toWorld = [&](const pesVec2f& v) -> pesVec2f {
+        pesVec2f w(v.x, v.y);
+        if (std::abs(angle) > 1e-4f)
+            w.rotate(angle, center);
+        return w;
+    };
+    auto appendList = [&](pesStitchBlockList& list, int32_t kind) {
+        for (size_t bi = 0; bi < list.size(); ++bi) {
+            auto& block = list[bi];
+            auto& verts = block.polyline.getVertices();
+            if (verts.empty())
+                continue; // empty blocks aren't drawn (getStitchBlockList drops them)
+            StitchBlock sb;
+            sb.kind = kind;
+            sb.block_index = (int32_t)bi;
+            sb.hex = colorToHex(block.color);
+            for (size_t i = 0; i < verts.size(); ++i) {
+                StitchPoint p{};
+                pesVec2f w = toWorld(verts[i]);
+                p.x = w.x;
+                p.y = w.y;
+                p.jump = i < block.types.size() && block.types[i] != 0;
+                sb.points.push_back(p);
+            }
+            out.push_back(std::move(sb));
+        }
+    };
+    appendList(data->fillBlocks, 0);
+    appendList(data->strokeBlocks, 1);
+    return out;
+}
+
+bool move_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                       int32_t point_index, float world_dx, float world_dy) {
+    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
+    if (!block)
+        return false;
+    auto& verts = block->polyline.getVertices();
+    if (point_index < 0 || point_index >= (int32_t)verts.size())
+        return false;
+    // world delta → local delta (undo the object's display rotation)
+    pesVec2f d(world_dx, world_dy);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    if (std::abs(angle) > 1e-4f)
+        d.rotate(-angle);
+    verts[point_index].translate(d);
+    doc()->getDataObject(obj_index)->recalculate();
+    return true;
+}
+
+bool insert_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                         int32_t point_index) {
+    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
+    if (!block)
+        return false;
+    auto& verts = block->polyline.getVertices();
+    const int32_t n = (int32_t)verts.size();
+    if (n < 2 || point_index < 0 || point_index >= n)
+        return false;
+    // last point splits the segment before it; otherwise the one after it
+    int32_t leftIndex, rightIndex;
+    if (point_index == n - 1) {
+        leftIndex = point_index - 1;
+        rightIndex = point_index;
+    } else {
+        leftIndex = point_index;
+        rightIndex = point_index + 1;
+    }
+    pesVec2f mid = (verts[leftIndex] + verts[rightIndex]) / 2.0f;
+    verts.insert(verts.begin() + rightIndex, mid);
+    // keep `types` parallel — the inserted midpoint is a normal stitch
+    if (rightIndex <= (int32_t)block->types.size())
+        block->types.insert(block->types.begin() + rightIndex,
+                            (uint8_t)NORMAL_STITCH);
+    doc()->getDataObject(obj_index)->recalculate();
+    return true;
+}
+
+// Insert a needle point at a given WORLD position, right after after_index
+// (used by double-click-on-a-thread-line). The world point is un-rotated back
+// to local space around the bbox center — inverse of get_stitch_points.
+bool insert_stitch_point_at(int32_t obj_index, int32_t kind, int32_t block_index,
+                            int32_t after_index, float world_x, float world_y) {
+    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
+    if (!block)
+        return false;
+    auto& verts = block->polyline.getVertices();
+    if (after_index < 0 || after_index >= (int32_t)verts.size())
+        return false;
+    auto data = doc()->getDataObject(obj_index);
+    pesVec2f p(world_x, world_y);
+    float angle = doc()->getDataParameter(obj_index).rotateDegree;
+    if (std::abs(angle) > 1e-4f)
+        p.rotate(-angle, data->getBoundingBox().getCenter());
+    const int32_t at = after_index + 1;
+    verts.insert(verts.begin() + at, p);
+    if (at <= (int32_t)block->types.size())
+        block->types.insert(block->types.begin() + at, (uint8_t)NORMAL_STITCH);
+    data->recalculate();
+    return true;
+}
+
+bool delete_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
+                         int32_t point_index) {
+    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
+    if (!block)
+        return false;
+    auto& verts = block->polyline.getVertices();
+    if (point_index < 0 || point_index >= (int32_t)verts.size())
+        return false;
+    verts.erase(verts.begin() + point_index);
+    if (point_index < (int32_t)block->types.size())
+        block->types.erase(block->types.begin() + point_index);
+    doc()->getDataObject(obj_index)->recalculate();
+    return true;
+}
+
 } // namespace pesffi

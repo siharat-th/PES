@@ -62,6 +62,11 @@ pub fn run() {
             commands::move_path_handle,
             commands::insert_path_node,
             commands::delete_path_node,
+            commands::get_stitch_points,
+            commands::move_stitch_point,
+            commands::insert_stitch_point,
+            commands::insert_stitch_point_at,
+            commands::delete_stitch_point,
             commands::translate_objects,
             commands::delete_objects,
         ])

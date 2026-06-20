@@ -2,7 +2,7 @@
 //! Engine work runs on blocking threads (stitch ops can be slow).
 
 use crate::engine::{
-    with_engine, BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode,
+    with_engine, BrotherColor, ColorBlockInfo, ObjectSnapshot, PathInfo, PathNode, StitchBlock,
 };
 use crate::history;
 use serde::Serialize;
@@ -491,6 +491,84 @@ pub async fn delete_path_node(
     run_blocking(move || {
         // refusal (subpath would collapse, or moveTo/close) is a benign no-op
         history::run_undoable_checked(|eng| eng.delete_path_node(index, path_index, node_index));
+        document_snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_stitch_points(index: i32) -> Result<Vec<StitchBlock>, String> {
+    run_blocking(move || with_engine(|eng| eng.stitch_points(index))).await
+}
+
+/// Move one needle point by a world delta. One undo step per drag.
+#[tauri::command]
+pub async fn move_stitch_point(
+    index: i32,
+    kind: i32,
+    block_index: i32,
+    point_index: i32,
+    dx: f32,
+    dy: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable_checked(|eng| {
+            eng.move_stitch_point(index, kind, block_index, point_index, dx, dy)
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Insert a needle point near point_index (refusal is a benign no-op).
+#[tauri::command]
+pub async fn insert_stitch_point(
+    index: i32,
+    kind: i32,
+    block_index: i32,
+    point_index: i32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable_checked(|eng| {
+            eng.insert_stitch_point(index, kind, block_index, point_index)
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Insert a needle point at a world position right after after_index
+/// (double-click on a thread line).
+#[tauri::command]
+pub async fn insert_stitch_point_at(
+    index: i32,
+    kind: i32,
+    block_index: i32,
+    after_index: i32,
+    x: f32,
+    y: f32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable_checked(|eng| {
+            eng.insert_stitch_point_at(index, kind, block_index, after_index, x, y)
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Delete the needle point at point_index (refusal is a benign no-op).
+#[tauri::command]
+pub async fn delete_stitch_point(
+    index: i32,
+    kind: i32,
+    block_index: i32,
+    point_index: i32,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable_checked(|eng| {
+            eng.delete_stitch_point(index, kind, block_index, point_index)
+        });
         document_snapshot()
     })
     .await

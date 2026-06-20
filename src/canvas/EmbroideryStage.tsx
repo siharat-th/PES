@@ -5,6 +5,7 @@ import GridLayer from "./GridLayer";
 import ObjectsLayer from "./ObjectsLayer";
 import StitchLayer from "./StitchLayer";
 import PathEditLayer from "./PathEditLayer";
+import StitchEditLayer from "./StitchEditLayer";
 import { ViewContext } from "./viewContext";
 import { useDocumentStore } from "../state/documentStore";
 import { useViewportStore } from "../state/viewportStore";
@@ -105,8 +106,8 @@ export default function EmbroideryStage() {
       };
       return;
     }
-    // keep the selection while editing nodes (PathEditLayer needs it)
-    if (e.target === e.target.getStage() && viewMode !== "pathEdit") select(-1);
+    // keep the selection while editing nodes/stitches (the edit layers need it)
+    if (e.target === e.target.getStage() && viewMode === "design") select(-1);
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -152,6 +153,8 @@ export default function EmbroideryStage() {
               <PathEditLayer />
             </>
           )}
+          {/* StitchEdit shows the stitches as editable thread lines (no texture) */}
+          {viewMode === "stitchEdit" && <StitchEditLayer />}
         </Stage>
       </ViewContext.Provider>
     </div>

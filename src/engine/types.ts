@@ -70,3 +70,21 @@ export interface PathNode {
   cp2x: number;
   cp2y: number;
 }
+
+/** A single needle point (world space) for StitchEdit. */
+export interface StitchPoint {
+  x: number;
+  y: number;
+  jump: boolean;
+}
+
+/** Stitch block kinds (which vector of an object holds the block). */
+export const STITCH_KIND = { fill: 0, stroke: 1 } as const;
+
+/** One stitch block for StitchEdit; `block_index` indexes its kind's vector. */
+export interface StitchEditBlock {
+  kind: number;
+  block_index: number;
+  hex: string;
+  points: StitchPoint[];
+}
