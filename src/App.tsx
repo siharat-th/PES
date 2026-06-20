@@ -18,6 +18,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
+import pesLogo from "./assets/pes-logo.png";
 import EmbroideryStage from "./canvas/EmbroideryStage";
 import Sidebar from "./panels/Sidebar";
 import SimulatorBar from "./panels/SimulatorBar";
@@ -176,9 +177,12 @@ export default function App() {
     <div className="flex h-screen flex-col bg-neutral-100 text-sm text-neutral-800">
       {/* Toolbar */}
       <div className="flex items-center gap-1 border-b border-neutral-200 bg-white px-2 py-1.5 shadow-sm">
-        <span className="mx-2 select-none text-base font-bold tracking-wide text-blue-600">
-          PES
-        </span>
+        <img
+          src={pesLogo}
+          alt="PES"
+          draggable={false}
+          className="mx-1.5 h-7 w-7 select-none rounded-md"
+        />
         <ToolButton
           label="New"
           icon={<FilePlus2 size={16} />}
