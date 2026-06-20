@@ -213,6 +213,19 @@ bool move_object_back(int32_t index) {
     return doc()->moveObjectBack(index);
 }
 
+// Move object from `from` to `to` via adjacent swaps so the whole drag is a
+// single engine mutation (one undo step). Indices are list positions
+// (0 = back-most, count-1 = front-most).
+bool move_object_to(int32_t from, int32_t to) {
+    int32_t count = doc()->getObjectCount();
+    if (from < 0 || from >= count || to < 0 || to >= count || from == to)
+        return false;
+    int32_t cur = from;
+    while (cur < to && doc()->moveObjectFront(cur)) cur++;
+    while (cur > to && doc()->moveObjectBack(cur)) cur--;
+    return cur == to;
+}
+
 rust::Vec<uint8_t> export_as(rust::Str format) {
     pesBuffer buf = doc()->exportBufferAs(std::string(format));
     return toRustVec(buf);

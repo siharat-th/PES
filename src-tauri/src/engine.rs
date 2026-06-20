@@ -135,6 +135,7 @@ mod ffi {
         fn duplicate_object(index: i32) -> bool;
         fn move_object_front(index: i32) -> bool;
         fn move_object_back(index: i32) -> bool;
+        fn move_object_to(from: i32, to: i32) -> bool;
 
         fn export_as(format: &str) -> Vec<u8>;
         fn get_thumbnail_png(wmax: i32, hmax: i32, index: i32) -> Vec<u8>;
@@ -309,6 +310,10 @@ impl Engine<'_> {
 
     pub fn move_object_back(&self, index: i32) -> bool {
         ffi::move_object_back(index)
+    }
+
+    pub fn move_object_to(&self, from: i32, to: i32) -> bool {
+        ffi::move_object_to(from, to)
     }
 
     pub fn export_as(&self, format: &str) -> Vec<u8> {

@@ -41,6 +41,7 @@ pub fn run() {
             commands::set_object_visible,
             commands::set_object_locked,
             commands::reorder_object,
+            commands::reorder_object_to,
             commands::undo,
             commands::redo,
             commands::get_object_paths,

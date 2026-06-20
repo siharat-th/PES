@@ -80,6 +80,15 @@ export async function reorderObject(
   return invoke("reorder_object", { index, dir });
 }
 
+/** Move an object to an arbitrary list position (drag-and-drop reorder).
+ *  Indices are list positions: 0 = back-most, count-1 = front-most. */
+export async function reorderObjectTo(
+  from: number,
+  to: number,
+): Promise<DocumentSnapshot> {
+  return invoke("reorder_object_to", { from, to });
+}
+
 export async function getObjectPaths(index: number): Promise<PathInfo[]> {
   return invoke("get_object_paths", { index });
 }

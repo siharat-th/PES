@@ -30,6 +30,7 @@ interface DocumentState {
   setVisible: (index: number, visible: boolean) => Promise<void>;
   setLocked: (index: number, locked: boolean) => Promise<void>;
   reorder: (index: number, dir: number) => Promise<void>;
+  reorderTo: (from: number, to: number) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   /** run any engine mutation that returns a fresh DocumentSnapshot */
@@ -129,6 +130,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const count = get().doc?.objects.length ?? 0;
       const next = Math.min(Math.max(index + dir, 0), Math.max(count - 1, 0));
       set({ selectedIndices: [next], selectedIndex: next });
+    },
+
+    reorderTo: async (from, to) => {
+      if (from === to) return;
+      await run(true, () => engine.reorderObjectTo(from, to));
+      // the dragged object now lives at `to`; keep it selected
+      set({ selectedIndices: [to], selectedIndex: to });
     },
 
     undo: () => run(true, () => engine.undo()),

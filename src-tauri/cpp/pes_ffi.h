@@ -37,6 +37,7 @@ bool delete_object(int32_t index);
 bool duplicate_object(int32_t index);
 bool move_object_front(int32_t index);
 bool move_object_back(int32_t index);
+bool move_object_to(int32_t from, int32_t to);
 
 rust::Vec<uint8_t> export_as(rust::Str format);
 rust::Vec<uint8_t> get_thumbnail_png(int32_t wmax, int32_t hmax, int32_t index);

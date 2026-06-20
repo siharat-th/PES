@@ -256,6 +256,20 @@ pub async fn reorder_object(index: i32, dir: i32) -> Result<DocumentSnapshot, St
     .await
 }
 
+/// Move an object to an arbitrary list position in one undoable step
+/// (used by drag-and-drop reordering). Indices are list positions:
+/// 0 = back-most, count-1 = front-most.
+#[tauri::command]
+pub async fn reorder_object_to(from: i32, to: i32) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            eng.move_object_to(from, to);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn get_object_paths(index: i32) -> Result<Vec<PathInfo>, String> {
     run_blocking(move || with_engine(|eng| eng.path_infos(index))).await
