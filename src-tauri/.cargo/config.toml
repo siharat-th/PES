@@ -1,0 +1,6 @@
+# The prebuilt Skia libs (../../SkiaApps/out/win-x64-release/*.lib) are compiled
+# with the static CRT (/MT -> /DEFAULTLIB:libcmt). Force the Rust side to the
+# static CRT too, otherwise the final link mixes libcmt (Skia) with msvcrt
+# (Rust default) and fails / crashes. Keep in lockstep with build.rs.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
