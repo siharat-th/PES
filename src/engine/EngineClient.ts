@@ -58,6 +58,25 @@ export async function duplicateObject(
   return invoke("duplicate_object", { index });
 }
 
+export interface DuplicateResult {
+  snapshot: DocumentSnapshot;
+  new_indices: number[];
+  /** id of the new group when `groupName` was passed, else -1 */
+  group_id: number;
+}
+
+/** Duplicate several objects in one undo step. Pass `groupName` to place the
+ *  copies into a fresh group (duplicating a whole group). */
+export async function duplicateObjects(
+  indices: number[],
+  groupName?: string,
+): Promise<DuplicateResult> {
+  return invoke("duplicate_objects", {
+    indices,
+    groupName: groupName ?? null,
+  });
+}
+
 export async function setObjectVisible(
   index: number,
   visible: boolean,
@@ -109,6 +128,11 @@ export async function renameGroup(
 /** Ungroup: drop the group, members revert to ungrouped (objects kept). */
 export async function ungroup(id: number): Promise<DocumentSnapshot> {
   return invoke("ungroup", { id });
+}
+
+/** Delete a group and all of its member objects. */
+export async function deleteGroup(id: number): Promise<DocumentSnapshot> {
+  return invoke("delete_group", { id });
 }
 
 export async function addToGroup(

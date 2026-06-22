@@ -85,6 +85,8 @@ export default function App() {
 
   // OS file drag & drop (Tauri intercepts HTML5 drop events)
   useEffect(() => {
+    // Browser preview (npm run dev, no Tauri): the webview API is absent.
+    if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "enter" || event.payload.type === "over") {
         setDragOver(true);

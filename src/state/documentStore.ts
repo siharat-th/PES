@@ -40,6 +40,8 @@ interface DocumentState {
   createGroup: (name: string, memberIndices?: number[]) => Promise<void>;
   renameGroup: (id: number, name: string) => Promise<void>;
   ungroup: (id: number) => Promise<void>;
+  /** delete the group AND all its member objects */
+  deleteGroup: (id: number) => Promise<void>;
   addToGroup: (id: number, indices: number[]) => Promise<void>;
   removeFromGroup: (indices: number[]) => Promise<void>;
   setGroupCollapsed: (id: number, collapsed: boolean) => Promise<void>;
@@ -151,9 +153,35 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     duplicateSelected: async () => {
-      const { selectedIndex } = get();
-      if (selectedIndex < 0) return;
-      await run(true, () => engine.duplicateObject(selectedIndex));
+      const { selectedIndices, doc } = get();
+      if (!selectedIndices.length || !doc) return;
+      // If every selected object belongs to one (non-ungrouped) group, the
+      // copies form a fresh group — "duplicate group". Otherwise just copy
+      // the objects (copies keep whatever group they were in).
+      const objs = selectedIndices
+        .map((i) => doc.objects.find((o) => o.index === i))
+        .filter((o): o is NonNullable<typeof o> => !!o);
+      const gid = objs[0]?.group_id ?? 0;
+      const sameGroup = gid !== 0 && objs.every((o) => o.group_id === gid);
+      const groupName = sameGroup
+        ? `${doc.groups.find((g) => g.id === gid)?.name ?? "Group"} copy`
+        : undefined;
+      set({ busy: true, error: null });
+      try {
+        const res = await engine.duplicateObjects(selectedIndices, groupName);
+        set((s) => ({
+          doc: res.snapshot,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: res.new_indices,
+          selectedIndex: res.new_indices.length
+            ? res.new_indices[res.new_indices.length - 1]
+            : -1,
+        }));
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
     },
 
     setVisible: (index, visible) =>
@@ -206,6 +234,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       run(false, () => engine.createGroup(name, memberIndices)),
     renameGroup: (id, name) => run(false, () => engine.renameGroup(id, name)),
     ungroup: (id) => run(false, () => engine.ungroup(id)),
+    // Deleting members changes pixels/indices → invalidate images, drop selection.
+    deleteGroup: async (id) => {
+      await run(true, () => engine.deleteGroup(id));
+      set({ selectedIndices: [], selectedIndex: -1 });
+    },
     addToGroup: (id, indices) =>
       run(false, () => engine.addToGroup(id, indices)),
     removeFromGroup: (indices) =>

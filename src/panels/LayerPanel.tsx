@@ -11,7 +11,8 @@ import {
   ChevronRight,
   FolderPlus,
   Maximize2,
-  X,
+  Ungroup,
+  Trash2,
 } from "lucide-react";
 import { useDocumentStore } from "../state/documentStore";
 import type { ObjectSnapshot, GroupSnapshot } from "../engine/types";
@@ -32,6 +33,7 @@ export default function LayerPanel() {
   const createGroup = useDocumentStore((s) => s.createGroup);
   const renameGroup = useDocumentStore((s) => s.renameGroup);
   const ungroup = useDocumentStore((s) => s.ungroup);
+  const deleteGroup = useDocumentStore((s) => s.deleteGroup);
   const addToGroup = useDocumentStore((s) => s.addToGroup);
   const removeFromGroup = useDocumentStore((s) => s.removeFromGroup);
   const setGroupCollapsed = useDocumentStore((s) => s.setGroupCollapsed);
@@ -63,15 +65,17 @@ export default function LayerPanel() {
   const draggedObj =
     dragIdx !== null ? objects.find((o) => o.index === dragIdx) : undefined;
 
-  // ---- Tree projection (front-most first) -------------------------------
-  // Each group clusters its members under one header; ungrouped objects stay
-  // at top level. A group anchors at its front-most member (empty groups pin
-  // to the top so they stay visible/droppable).
+  // ---- Tree projection (back-most first, matching the old PES app) -------
+  // The old app's layer list shows object index 0 (back-most, stitched first)
+  // at the TOP and the front-most layer at the BOTTOM. Each group clusters its
+  // members under one header; ungrouped objects stay at top level. A group
+  // anchors at its back-most member (empty groups pin to the top so they stay
+  // visible/droppable).
   const groupIds = new Set(groups.map((g) => g.id));
   const membersOf = (id: number) =>
     objects
       .filter((o) => o.group_id === id)
-      .sort((a, b) => b.index - a.index);
+      .sort((a, b) => a.index - b.index);
 
   type Entry =
     | { kind: "object"; key: string; sort: number; obj: ObjectSnapshot }
@@ -92,11 +96,11 @@ export default function LayerPanel() {
   for (const g of groups) {
     const members = membersOf(g.id);
     const sort = members.length
-      ? Math.max(...members.map((m) => m.index))
-      : Number.MAX_SAFE_INTEGER;
+      ? Math.min(...members.map((m) => m.index))
+      : -1;
     entries.push({ kind: "group", key: `g${g.id}`, sort, group: g, members });
   }
-  entries.sort((a, b) => b.sort - a.sort);
+  entries.sort((a, b) => a.sort - b.sort);
 
   // ---- Drag helpers -----------------------------------------------------
   /** Resolve what's under a screen point: the layer row index and/or the
@@ -247,22 +251,22 @@ export default function LayerPanel() {
       <div className="flex flex-col">
         <button
           className="icon-btn text-neutral-400"
-          title="เลื่อนขึ้น (มาหน้า)"
-          disabled={obj.index >= objects.length - 1}
+          title="เลื่อนขึ้น (ไปหลัง)"
+          disabled={obj.index <= 0}
           onClick={(e) => {
             e.stopPropagation();
-            void reorder(obj.index, +1);
+            void reorder(obj.index, -1);
           }}
         >
           <ChevronUp size={13} />
         </button>
         <button
           className="icon-btn text-neutral-400"
-          title="เลื่อนลง (ไปหลัง)"
-          disabled={obj.index <= 0}
+          title="เลื่อนลง (มาหน้า)"
+          disabled={obj.index >= objects.length - 1}
           onClick={(e) => {
             e.stopPropagation();
-            void reorder(obj.index, -1);
+            void reorder(obj.index, +1);
           }}
         >
           <ChevronDown size={13} />
@@ -366,14 +370,24 @@ export default function LayerPanel() {
           {allLocked ? <Lock size={14} /> : <LockOpen size={14} />}
         </button>
         <button
-          className="icon-btn text-neutral-400 hover:text-red-500"
+          className="icon-btn text-neutral-400 hover:text-neutral-600"
           title="ยุบกลุ่ม (เก็บ object ไว้)"
           onClick={(e) => {
             e.stopPropagation();
             void ungroup(group.id);
           }}
         >
-          <X size={14} />
+          <Ungroup size={14} />
+        </button>
+        <button
+          className="icon-btn text-neutral-400 hover:text-red-500"
+          title="ลบทั้งกลุ่ม (รวม object ข้างใน)"
+          onClick={(e) => {
+            e.stopPropagation();
+            void deleteGroup(group.id);
+          }}
+        >
+          <Trash2 size={14} />
         </button>
       </div>
     );

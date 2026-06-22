@@ -25,7 +25,7 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
   const translateObjects = useDocumentStore((s) => s.translateObjects);
 
   const cacheRef = useRef<Map<number, CachedImage>>(new Map());
-  const [, forceRender] = useState(0);
+  const [renderTick, forceRender] = useState(0);
   const trRef = useRef<Konva.Transformer>(null);
   const nodeRefs = useRef<Map<number, Konva.Image>>(new Map());
   const dragIds = useRef<number[]>([]);
@@ -64,7 +64,10 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
       .filter((n): n is Konva.Image => !!n);
     tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
-  }, [selectedIndices, objects, imageVersion]);
+    // `renderTick` re-runs this as each object's bitmap loads and its Konva node
+    // mounts — without it, a freshly duplicated group attaches only the copies
+    // whose images happened to be ready, leaving the rest unselected.
+  }, [selectedIndices, objects, imageVersion, renderTick]);
 
   const commitNode = (obj: ObjectSnapshot, node: Konva.Image) => {
     const cx0 = obj.x + obj.width / 2;

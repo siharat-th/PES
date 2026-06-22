@@ -225,6 +225,62 @@ pub async fn duplicate_object(index: i32) -> Result<DocumentSnapshot, String> {
     .await
 }
 
+#[derive(Serialize)]
+pub struct DuplicateResult {
+    pub snapshot: DocumentSnapshot,
+    pub new_indices: Vec<i32>,
+    /// id of the freshly created group (when `group_name` was given), else -1.
+    pub group_id: i32,
+}
+
+/// Duplicate every object in `indices` as ONE undo step. When `group_name` is
+/// given, the new copies are reassigned into a fresh group of that name — so
+/// duplicating a whole group yields a new group instead of inheriting the
+/// originals' group. Returns the new copies' indices so the UI can select them.
+#[tauri::command]
+pub async fn duplicate_objects(
+    indices: Vec<i32>,
+    group_name: Option<String>,
+) -> Result<DuplicateResult, String> {
+    run_blocking(move || {
+        let (new_indices, group_id) = history::run_undoable(|eng| {
+            // Duplicate in ascending order: duplicateObject inserts the copy
+            // right after its source, so each later source shifts up by the
+            // number of insertions already made below it.
+            let mut src = indices.clone();
+            src.sort_unstable();
+            src.dedup();
+            let mut new_indices = Vec::with_capacity(src.len());
+            let mut inserted = 0i32;
+            for &s in &src {
+                let cur = s + inserted;
+                if eng.duplicate_object(cur) {
+                    new_indices.push(cur + 1);
+                    inserted += 1;
+                }
+            }
+            // Copies inherit the source groupId; overwrite it for a new group.
+            let mut group_id = -1;
+            if let Some(name) = &group_name {
+                if !new_indices.is_empty() {
+                    let id = eng.create_group(name, 0);
+                    for &i in &new_indices {
+                        eng.set_object_group(i, id);
+                    }
+                    group_id = id;
+                }
+            }
+            (new_indices, group_id)
+        });
+        DuplicateResult {
+            snapshot: document_snapshot(),
+            new_indices,
+            group_id,
+        }
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn set_object_visible(index: i32, visible: bool) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
@@ -681,6 +737,54 @@ pub async fn rename_group(id: i32, name: String) -> Result<DocumentSnapshot, Str
 pub async fn ungroup(id: i32) -> Result<DocumentSnapshot, String> {
     run_blocking(move || {
         history::run_undoable(|eng| {
+            // Members may be non-contiguous in the flat list (a duplicated group
+            // interleaves copies with originals, drag-reorder can split a group).
+            // The panel hides this by clustering on group_id, but ungrouping
+            // exposes the raw order. Compact the members into one contiguous
+            // block first — preserving their relative z-order and anchoring at
+            // the front-most (highest-index) member — so the order stays right.
+            let mut members: Vec<i32> = eng
+                .object_snapshots()
+                .iter()
+                .filter(|o| o.group_id == id)
+                .map(|o| o.index)
+                .collect();
+            members.sort_unstable();
+            if members.len() >= 2 {
+                let k = members.len();
+                let top = members[k - 1];
+                // High→low: each lower member slides up to just below the block
+                // already assembled at the top. A lower member keeps its index
+                // until moved, since each move only touches higher positions.
+                for j in (0..k - 1).rev() {
+                    let dest = top - (k as i32 - 1 - j as i32);
+                    eng.move_object_to(members[j], dest);
+                }
+            }
+            eng.delete_group(id);
+        });
+        document_snapshot()
+    })
+    .await
+}
+
+/// Delete a group AND all of its member objects — ONE undo step. (Distinct from
+/// `ungroup`, which keeps the objects.)
+#[tauri::command]
+pub async fn delete_group(id: i32) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| {
+            // Delete members high-index → low so earlier indices stay valid.
+            let mut members: Vec<i32> = eng
+                .object_snapshots()
+                .iter()
+                .filter(|o| o.group_id == id)
+                .map(|o| o.index)
+                .collect();
+            members.sort_unstable();
+            for &i in members.iter().rev() {
+                eng.delete_object(i);
+            }
             eng.delete_group(id);
         });
         document_snapshot()
