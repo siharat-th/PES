@@ -14,6 +14,7 @@
 #include "pesColor.hpp"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPath.h"
+#include "skia-ext/pes_skpath_compat.h"
 
 using namespace std;
 
@@ -156,7 +157,7 @@ private:
     Mode  mode;
     
     // pom
-    SkPath skpath;
+    PesPath skpath;
 };
 
 #endif /* pesSkPath_hpp */

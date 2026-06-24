@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, IS_TAURI } from "./transport";
+import { webLoadInput, webExportBytes } from "./webEngine";
 import type {
   BrotherColor,
   ColorBlockInfo,
@@ -7,6 +8,24 @@ import type {
   PathNode,
   StitchEditBlock,
 } from "./types";
+
+export { IS_TAURI };
+
+/** Web file-open: load a picked file's bytes into the engine (no filesystem
+ *  path on the web — the desktop build uses openFile(path) instead). */
+export async function openDocumentBytes(
+  filename: string,
+  bytes: Uint8Array,
+): Promise<DocumentSnapshot> {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const kind = ext === "pes" ? "pes" : ext === "svg" ? "svg" : "ppes";
+  return webLoadInput(kind, bytes);
+}
+
+/** Web file-save: exported bytes for a format, for a browser download. */
+export async function exportDocumentBytes(format: string): Promise<Uint8Array> {
+  return webExportBytes(format);
+}
 
 export async function newDocument(
   hoopWMm = 100,

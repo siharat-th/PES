@@ -8,6 +8,8 @@
 
 #include "pesSatinColumn.hpp"
 #include "include/pathops/SkPathOps.h"
+#include "skia-ext/pes_skia_ext.h"
+#include "skia-ext/pes_skpath_compat.h"
 #include "pesPathUtility.hpp"
 
 using namespace std;
@@ -498,7 +500,7 @@ bool pesSatinColumn::doSatin3(std::vector<pesPolyline>& patchs,
         auto prev0 = pesVec2f(SK_ScalarMax, SK_ScalarMax);
         auto prev1 = pesVec2f(SK_ScalarMin, SK_ScalarMin);
 
-        auto skpself = SkPath(selfArea);
+        PesPath skpself(selfArea);
         skpself.setFillType(SkPathFillType::kEvenOdd);
 
         std::vector<SkPath> skpintersects;
@@ -511,7 +513,7 @@ bool pesSatinColumn::doSatin3(std::vector<pesPolyline>& patchs,
             AsWinding(skpintersect, &skpintersect);
             skpintersect.setFillType(SkPathFillType::kWinding);
             for (int verb = 0, verbs = (int)skpintersect.countVerbs(); verb < verbs; verb++) {
-                if (skpintersect.getVerb(verb) == SkPath::Verb::kMove_Verb) {
+                if (pes_skia::getVerb(skpintersect, verb) == SkPath::Verb::kMove_Verb) {
                     nSelfIntersect++;
                 }
             }

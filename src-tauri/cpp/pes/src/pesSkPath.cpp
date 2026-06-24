@@ -161,7 +161,7 @@ void pesSkPath::arcNegative(const pesVec2f & centre, float radiusX, float radius
 void pesSkPath::circle(float x, float y, float radius){
 //    moveTo(x+radius, y);
 //    arc(pesVec2f(x, y), radius, radius, 0, 360);
-    skpath.Circle(x, y, radius);
+    skpath.addCircle(x, y, radius);
 }
 
 void pesSkPath::circle(const pesVec2f & p, float radius){
@@ -218,7 +218,7 @@ void pesSkPath::scale(float x, float y){
 //        }
 //    }
 //    flagShapeChanged();
-    skpath.makeScale(x, y);
+    skpath = skpath.skpath().makeScale(x, y);
 }
 
 void pesSkPath::translate(float x, float y){
@@ -242,7 +242,7 @@ void pesSkPath::translate(float x, float y){
     
     SkMatrix m;
     m.setTranslate(x, y);
-    skpath.makeTransform(m);
+    skpath = skpath.skpath().makeTransform(m);
 }
 
 void pesSkPath::flagShapeChanged(){

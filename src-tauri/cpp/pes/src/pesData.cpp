@@ -17,14 +17,19 @@
 #include "pesSVG.hpp"
 #include "pesDocument.hpp"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathUtils.h"
+#include "include/core/SkImage.h"
+#include "include/codec/SkCodec.h"
 #include "include/pathops/SkPathOps.h"
+#include "skia-ext/pes_skia_ext.h"
+#include "skia-ext/pes_skpath_compat.h"
 
 
 #include "pesPathUtility.hpp"
+#include <cfloat>
 #include <map>
-#include <include/core/SkTime.h>
-#include <include/private/base/SkPathEnums.h>
+#include <src/core/SkPathEnums.h>
 #include "src/core/SkPathPriv.h"
 
 bool PES_SORTING_BY_AREA = true;
@@ -1048,7 +1053,7 @@ bool pesData::loadBackgroundFromBuffer(const pesBuffer & buff, bool center){
     if(buff.size()){
         parameter.backgroundBuffer = pesBuffer(buff.getData(), buff.size());
         sk_sp<SkData> encoded = SkData::MakeWithCopy(buff.getData(), buff.size());
-        parameter.textureBackground = SkImage::MakeFromEncoded(encoded);
+        parameter.textureBackground = SkImages::DeferredFromEncodedData(encoded);
         //SkDebugf("image size: %i, %i\n",
         //            parameter.textureBackground->width(),
         //            parameter.textureBackground->height());  
@@ -1755,15 +1760,12 @@ pesPath pesData::unitePaths( pesPath &tpath, pesPath &npath ) {
 }
 
 SkPath pesData::SkiaPathStroke( SkPath &skPath, float value ) {
-    SkPath newPath;
-    
     SkPaint paint;
     paint.setStyle( SkPaint::Style::kStroke_Style );
     paint.setStrokeWidth( value * 2);
     paint.setStrokeCap( SkPaint::Cap::kButt_Cap);
     paint.setStrokeJoin( SkPaint::Join::kBevel_Join);
-    skpathutils::FillPathWithPaint(skPath, paint, &newPath);
-    
+    SkPath newPath = skpathutils::FillPathWithPaint(skPath, paint);
     newPath.setFillType( SkPathFillType::kEvenOdd );
     return newPath;
 }
@@ -1930,7 +1932,7 @@ struct ShapeInfo {
     static int getSubPathsSize(const SkPath& path) {
         int movecount = 0;
         for (int verb = 0, verbs = path.countVerbs(); verb < verbs; verb++) {
-            if (path.getVerb(verb) == SkPath::Verb::kMove_Verb) {
+            if (pes_skia::getVerb(path, verb) == SkPath::Verb::kMove_Verb) {
                 movecount++;
             }
         }
@@ -1951,7 +1953,7 @@ struct ShapeInfo {
         //auto pp = toPes(skp);
         //skp.reset();
         ////skp.setFillType((SkPathFillType)pp.fillRule);
-        SkPath skp;
+        PesPath skp;
         skp.setFillType(SkPathFillType::kWinding);
         for (const auto& subpp : p.getSubPath()) {
             auto subskp = toSk(subpp);
@@ -1963,7 +1965,7 @@ struct ShapeInfo {
         }
         //Op(skp, SkPath(), kUnion_SkPathOp, &skp);
         //SkDebugf("++size:%d\n", getSubPathsSize(skp));
-        Simplify(skp, &skp);
+        skp.simplify();
         //SkDebugf("--size:%d\n", getSubPathsSize(skp));
 
         //skp.setFillType((SkPathFillType)0);
@@ -1981,7 +1983,7 @@ struct ShapeInfo {
 
         //Op(skp, SkPath(), kUnion_SkPathOp, &skp);
         //SkDebugf("++size:%d\n", getSubPathsSize(skp));
-        Simplify(skp, &skp);
+        skp.simplify();
         //SkDebugf("--size:%d\n", getSubPathsSize(skp));
 
         //skp.setFillType(SkPathFillType::kWinding);
@@ -2005,7 +2007,7 @@ struct ShapeInfo {
         if (isInverse) {
             //pesRectangle bound = shapeinfo.path.getBoundingBox();
             const auto rect = SkRect::MakeXYWH(bound.x, bound.y, bound.width, bound.height);
-            shapeinfo.outline = toPes(SkPath().addRect(rect));
+            shapeinfo.outline = toPes(PesPath().addRect(rect));
         } 
         else {
             if (subpaths.size() < 2) {
@@ -2043,7 +2045,7 @@ struct ShapeInfo {
             auto& shapeinfo = shapeinfos.emplace_back(p);
             pesRectangle bound = shapeinfo.path.getBoundingBox();
             const auto rect = SkRect::MakeXYWH(bound.x, bound.y, bound.width, bound.height);
-            shapeinfo.outline = toPes(SkPath().addRect(rect));
+            shapeinfo.outline = toPes(PesPath().addRect(rect));
             shapeinfo.id = shapeid++;
             shapeinfo.members = (int)subpaths.size();
             return;
@@ -2458,9 +2460,7 @@ struct SatinColumnInfoGroup {
 
 // Current version
 void pesData::applyFill() {
-#ifndef __EMSCRIPTEN__
-    SkAutoTime skautotime("pesData::applyFill");
-#endif
+    // (SkAutoTime profiling removed: dropped from Skia M150)
 
     fillBlocks.clear();
     
@@ -2538,7 +2538,7 @@ void pesData::applyFill() {
                         }
                         pathIndex = pi+1;
 
-                        builder.resolve(&_epath0); 
+                        pes_skia::resolveBuilder(builder,&_epath0); 
                         epath0 = toPes(_epath0);
                         //epath0.setFillColor( _ppaths[pathIndex].getFillColor() );                        
                         //_ppaths[pathIndex].clear();
@@ -2598,7 +2598,7 @@ void pesData::applyFill() {
                             builder.add(eraserPath, kUnion_SkPathOp);
                             builder.add(targetPath, kReverseDifference_SkPathOp);
                         }
-                        builder.resolve(&targetPath);                                                  
+                        pes_skia::resolveBuilder(builder,&targetPath);                                                  
 
                         pesPath path = toPes( targetPath );
                         path.setStrokeColor( strokeColor );
@@ -2684,7 +2684,7 @@ void pesData::applyFill() {
                             builder.add(eraserPath, kUnion_SkPathOp);
                             builder.add(targetPath, kReverseDifference_SkPathOp);
                         }
-                        builder.resolve(&targetPath);                        
+                        pes_skia::resolveBuilder(builder,&targetPath);                        
 
                         pesPath path = toPes( targetPath );
                         path.setStrokeColor( strokeColor );
@@ -3843,12 +3843,12 @@ void pesData::applyFill() {
                 scInfos.push_back(info);
             }
 
-            SkPath skp;
+            PesPath skp;
             std::vector<SkPath> skpgroups;
             for (int i = 0, ii = (int)scInfos.size(); i < ii; i++) {
                 skp.addPath(scInfos[i]->skpoutline);
             }
-            Simplify(skp, &skp);
+            skp.simplify();
             skp.setFillType(SkPathFillType::kWinding);
 
             auto pp = toPes(skp);
@@ -3861,7 +3861,7 @@ void pesData::applyFill() {
             for (int i = 0, ii = skps.size(); i < ii; i++) {
                 auto& skp = skps[i];
                 if (SkPathFirstDirection::kCCW == SkPathPriv::ComputeFirstDirection(skp)) {
-                    SkPath skrev;
+                    PesPath skrev;
                     skrev.reverseAddPath(skp);
                     skps[i] = skrev;
                 }
@@ -3872,7 +3872,7 @@ void pesData::applyFill() {
                 skp.addPath(skps[i]);
             }
 
-            Simplify(skp, &skp);
+            skp.simplify();
             skp.setFillType(SkPathFillType::kWinding);
 
             pp = toPes(skp);
@@ -3881,7 +3881,7 @@ void pesData::applyFill() {
             for (int i = 0, ii = pps.size(); i < ii; i++) {
                 auto skp = toSk(pps[i]);
                 if (SkPathFirstDirection::kCCW == SkPathPriv::ComputeFirstDirection(skp)) {
-                    SkPath skrev;
+                    PesPath skrev;
                     skrev.reverseAddPath(skp);
                     skp = skrev;
                 }
@@ -3944,9 +3944,11 @@ void pesData::applyFill() {
                         for (int i = 0, ii = (int)scInfos.size(); i < ii; i++) {
                             SkPath remainingArea;
                             if (bEnableMakeSatinNoneOverlap) {
+                                PesPath ra;
                                 for (int j = i + 1; j < ii; j++) {
-                                    remainingArea.addPath(scInfos[j]->skpoutline);
+                                    ra.addPath(scInfos[j]->skpoutline);
                                 }
+                                remainingArea = ra;
                                 //if (i + 1 < ii) {
                                 //    Simplify(remainingArea, &remainingArea);
                                 //    AsWinding(remainingArea, &remainingArea);
@@ -4263,7 +4265,7 @@ void pesData::applyCrossStitchFill2(){
                     }
                     pathIndex = pi+1;
 
-                    builder.resolve(&_epath0);
+                    pes_skia::resolveBuilder(builder,&_epath0);
                     epath0 = toPes(_epath0);
                     //epath0.setFillColor( _ppaths[pathIndex].getFillColor() );
                     //_ppaths[pathIndex].clear();
@@ -4323,7 +4325,7 @@ void pesData::applyCrossStitchFill2(){
                         builder.add(eraserPath, kUnion_SkPathOp);
                         builder.add(targetPath, kReverseDifference_SkPathOp);
                     }
-                    builder.resolve(&targetPath);
+                    pes_skia::resolveBuilder(builder,&targetPath);
 
                     pesPath path = toPes( targetPath );
                     path.setStrokeColor( strokeColor );
@@ -4411,7 +4413,7 @@ void pesData::applyCrossStitchFill2(){
                         builder.add(eraserPath, kUnion_SkPathOp);
                         builder.add(targetPath, kReverseDifference_SkPathOp);
                     }
-                    builder.resolve(&targetPath);
+                    pes_skia::resolveBuilder(builder,&targetPath);
 
                     pesPath path = toPes( targetPath );
                     path.setStrokeColor( strokeColor );

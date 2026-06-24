@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../engine/transport";
 import {
   Eye,
   EyeOff,
@@ -495,9 +495,9 @@ function LayerThumb({ index, version }: { index: number; version: number }) {
   );
 
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-neutral-200 bg-neutral-50">
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
       {url ? (
-        <img src={url} className="max-h-9 max-w-9 object-contain" alt="" />
+        <img src={url} className="max-h-[52px] max-w-[52px] object-contain" alt="" />
       ) : (
         <span className="text-[10px] text-neutral-300">…</span>
       )}

@@ -9,6 +9,7 @@
 #include "pesEMBFill.hpp"
 #include "pesUtility.hpp"
 #include "pesDocument.hpp"
+#include <cfloat>
 #include <pesPathUtility.hpp>
 #include <include/pathops/SkPathOps.h>
 

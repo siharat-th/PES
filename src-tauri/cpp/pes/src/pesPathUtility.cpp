@@ -7,6 +7,7 @@
 //
 
 #include "pesPathUtility.hpp"
+#include "skia-ext/pes_skpath_compat.h"
 
 template <typename skVisitFunc>
 void skVisitPath(const SkPath& p, skVisitFunc&& f) {
@@ -83,7 +84,7 @@ pesPath toPes(const SkPath& path){
 
 
 SkPath toSk(const pesPath& path){
-    SkPath p;
+    PesPath p;
     p.setFillType(static_cast<SkPathFillType>(path.fillRule));
     for (const auto &c : path.getCommands()) {
         switch (c.type) {

@@ -43,6 +43,7 @@ export default function App() {
   const { doc, busy, error, selectedIndex, clearError } = useDocumentStore();
   const newDocument = useDocumentStore((s) => s.newDocument);
   const openFile = useDocumentStore((s) => s.openFile);
+  const openBytes = useDocumentStore((s) => s.openBytes);
   const saveProject = useDocumentStore((s) => s.saveProject);
   const projectPath = useDocumentStore((s) => s.projectPath);
   const refresh = useDocumentStore((s) => s.refresh);
@@ -59,6 +60,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void refresh();
@@ -105,7 +107,24 @@ export default function App() {
     };
   }, [openFile]);
 
+  // Browser download helper (web export/save has no filesystem path).
+  const downloadBytes = (bytes: Uint8Array, filename: string) => {
+    const blob = new Blob([bytes as BlobPart], {
+      type: "application/octet-stream",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const handleOpen = async () => {
+    if (!engine.IS_TAURI) {
+      fileInputRef.current?.click(); // web: native <input type=file> picker
+      return;
+    }
     const path = await open({
       multiple: false,
       filters: [{ name: "Embroidery", extensions: OPENABLE }],
@@ -113,7 +132,20 @@ export default function App() {
     if (typeof path === "string") await openFile(path);
   };
 
+  const onFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await openBytes(file.name, bytes);
+  };
+
   const handleExport = async (format: string, ext: string) => {
+    if (!engine.IS_TAURI) {
+      const bytes = await engine.exportDocumentBytes(format);
+      if (bytes.length) downloadBytes(bytes, `untitled.${ext}`);
+      return;
+    }
     const path = await save({
       filters: [{ name: format, extensions: [ext] }],
       defaultPath: `untitled.${ext}`,
@@ -122,6 +154,11 @@ export default function App() {
   };
 
   const handleSaveAs = async () => {
+    if (!engine.IS_TAURI) {
+      const bytes = await engine.exportDocumentBytes("PPES");
+      if (bytes.length) downloadBytes(bytes, projectPath ?? "untitled.ppes");
+      return;
+    }
     const path = await save({
       filters: [{ name: "PES Project", extensions: ["ppes"] }],
       defaultPath: projectPath ?? "untitled.ppes",
@@ -177,6 +214,14 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-neutral-100 text-sm text-neutral-800">
+      {/* web file-open picker (desktop uses the native Tauri dialog) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".ppes,.ppes5,.pes,.svg"
+        className="hidden"
+        onChange={onFileInputChange}
+      />
       {/* Toolbar */}
       <div className="flex items-center gap-1 border-b border-neutral-200 bg-white px-2 py-1.5 shadow-sm">
         <img
@@ -401,17 +446,26 @@ function ToolButton({
   className?: string;
 }) {
   return (
-    <button
-      className={`flex items-center justify-center rounded-md p-2 hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
-        active ? "bg-blue-50 text-blue-600" : "text-neutral-600"
-      } ${className}`}
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-    >
-      {icon}
-    </button>
+    // group/tip wrapper so the tooltip shows even on disabled buttons and works
+    // in the Tauri WKWebView (which doesn't render the native `title` tooltip).
+    <span className={`group relative inline-flex ${className}`}>
+      <button
+        className={`flex items-center justify-center rounded-md p-2 hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-35 disabled:hover:bg-transparent ${
+          active ? "bg-blue-50 text-blue-600" : "text-neutral-600"
+        }`}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+      >
+        {icon}
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-md bg-neutral-800 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg ring-1 ring-black/5 transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100"
+      >
+        {label}
+      </span>
+    </span>
   );
 }
 

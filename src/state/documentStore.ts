@@ -16,6 +16,8 @@ interface DocumentState {
 
   newDocument: (wMm?: number, hMm?: number) => Promise<void>;
   openFile: (path: string) => Promise<void>;
+  /** web file-open: load a picked file's bytes (browser has no path) */
+  openBytes: (filename: string, bytes: Uint8Array) => Promise<void>;
   /** write the whole document as a .ppes project to `path` and remember it */
   saveProject: (path: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -101,6 +103,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const ext = path.split(".").pop()?.toLowerCase();
       if (!get().error && (ext === "ppes" || ext === "ppes5")) {
         set({ projectPath: path });
+      }
+    },
+
+    openBytes: async (filename, bytes) => {
+      await run(true, () => engine.openDocumentBytes(filename, bytes));
+      const ext = filename.split(".").pop()?.toLowerCase();
+      if (!get().error && (ext === "ppes" || ext === "ppes5")) {
+        set({ projectPath: filename });
       }
     },
 

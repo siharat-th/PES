@@ -13,13 +13,16 @@
 #include "pesSatinOutline.hpp"
 #include "pesUtility.hpp"
 #include "json.hpp"
-#include "include/core/SkEncodedImageFormat.h"
+#include "include/codec/SkEncodedImageFormat.h"
 #include "include/encode/SkPngEncoder.h"
-#include "include/utils/SkBase64.h"
+#include "skia-ext/pes_skia_ext.h"
+#include "src/base/SkBase64.h"
 #include "include/core/SkData.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkVertices.h"
+#include "skia-ext/pes_skpath_compat.h"
 #include "pesPathUtility.hpp"
 
 #include "include/utils/SkTextUtils.h"
@@ -1087,7 +1090,7 @@ bool pesDocument::loadPPESFromBuffer(const pesBuffer& ppesBuff){
 
                         datas[i].parameter.backgroundBuffer = pesBuffer(ptr, length);
                         sk_sp<SkData> encoded = SkData::MakeWithCopy(ptr, length);
-                        datas[i].parameter.textureBackground = SkImage::MakeFromEncoded(encoded);
+                        datas[i].parameter.textureBackground = SkImages::DeferredFromEncodedData(encoded);
                         //SkDebugf("image size: %i, %i\n",
                         //         datas[i].parameter.textureBackground->width(),
                         //         datas[i].parameter.textureBackground->height());
@@ -2072,7 +2075,7 @@ pesBuffer pesDocument::getPNGBuffer(bool dpi300) const {
     size_t pixelLen = size_t(4) * w * h;
     void* pixelPtr = sk_malloc_throw(pixelLen);
     if (pixelPtr) {
-        sk_sp<SkSurface> surface(SkSurface::MakeRasterDirectReleaseProc(imageInfo, pixelPtr, size_t(4) * w, release_direct_surface_storage, pixelPtr));
+        sk_sp<SkSurface> surface(SkSurfaces::WrapPixels(imageInfo, pixelPtr, size_t(4) * w, release_direct_surface_storage, pixelPtr));
         SkCanvas* canvas = surface->getCanvas();
         //canvas->clear(0xffffffff);
         canvas->clear(SK_ColorTRANSPARENT);
@@ -2111,7 +2114,7 @@ pesBuffer pesDocument::getPNGBuffer(bool dpi300) const {
             }
             canvas->restore();
         }
-        canvas->flush();
+        // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
         sk_sp<SkImage> image  = surface->makeImageSnapshot();
         //sk_sp<SkData> pngData = image->encodeToData();
         auto pngData = SkImageToPngData(image, dpi300 ? 11811 : 10000);
@@ -2127,7 +2130,7 @@ pesBuffer pesDocument::getPNGBuffer(bool dpi300) const {
 //pesBuffer pesDocument::getThumbnailPNGBuffer(int w, int h, int index) { return pesBuffer(); }
 
 SkImageInfo imageInfoThumbnailPNG = SkImageInfo::Make( 400, 400, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType);
-sk_sp<SkSurface> surfaceThumbnailPNG = SkSurface::MakeRaster(imageInfoThumbnailPNG);
+sk_sp<SkSurface> surfaceThumbnailPNG = SkSurfaces::Raster(imageInfoThumbnailPNG);
 
 pesBuffer pesDocument::getThumbnailPNGBuffer(int wmax400,
                                              int hmax400,
@@ -2293,7 +2296,7 @@ pesBuffer pesDocument::getThumbnailPNGBuffer(int wmax400,
         else {
             fndrawpes(__pesDataList[index].get(), index);
         }
-        canvas->flush();
+        // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
         const SkIRect srcBounds = {0, 0, wmax400, hmax400};
         sk_sp<SkImage> image = surfaceThumbnailPNG->makeImageSnapshot(srcBounds);
         //sk_sp<SkData> pngData = image->encodeToData();
@@ -2647,8 +2650,8 @@ pesData pesMergeAllData(const pesDocument& doc) {
 
 #include "include/encode/SkPngEncoder.h"
 #include "include/core/SkStream.h"
-//#include "src/images/SkImageEncoderFns.h"
-//#include "src/images/SkImageEncoderPriv.h"
+//#include "src/encode/SkImageEncoderFns.h"
+//#include "src/encode/SkImageEncoderPriv.h"
 ////#include <third_party/externals/libpng/pngset.c>
 //
 ////#include <third_party/externals/libpng/png.h>
@@ -2719,7 +2722,7 @@ sk_sp<SkData> SkImageToPngData(sk_sp<SkImage> img, const uint32_t ppm) {
     }
 
     SkDynamicMemoryWStream buf;
-    bool success = SkPngEncoder::Encode(&buf, pixmap, SkPngEncoder::Options(), ppm);
+    bool success = pes_skia::encodePngWithDpi(&buf, pixmap, ppm);
     return success ? buf.detachAsData() : SkData::MakeEmpty();
 }
 
@@ -3004,7 +3007,7 @@ sk_sp<SkImage> pesDocument::makePesScalableImageSnapshot(int idx, std::string fi
         void* pixelPtr = sk_malloc_throw(pixelLen);  // sk_malloc_canfail(pixelLen);
         if (pixelPtr) {
             sk_sp<SkSurface> surface(
-                SkSurface::MakeRasterDirectReleaseProc(
+                SkSurfaces::WrapPixels(
                     imageInfo, 
                     pixelPtr, 
                     size_t(4) * w, 
@@ -3113,7 +3116,7 @@ sk_sp<SkImage> pesDocument::makePesScalableImageSnapshot(int idx, std::string fi
                     }
                     skpath.reset();
                 }
-                canvas->flush();
+                // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
             }
             return surface->makeImageSnapshot();
         } else {
@@ -3143,7 +3146,7 @@ sk_sp<SkImage> pesDocument::makePesBackgroundImageSnapshot(int idx) const {
 //        size_t pixelLen = w * h * 4;                 // // it's 8888, so 4 bytes per pixel
 //        void* pixelPtr = sk_malloc_throw(pixelLen);  // sk_malloc_canfail(pixelLen);
 //        if (pixelPtr) {
-//            sk_sp<SkSurface> surface(SkSurface::MakeRasterDirectReleaseProc(
+//            sk_sp<SkSurface> surface(SkSurfaces::WrapPixels(
 //                    imageInfo, pixelPtr, w * 4, release_direct_surface_storage, pixelPtr));
 //            SkCanvas* canvas = surface->getCanvas();
 //            canvas->translate(-bound.x, -bound.y);
@@ -3173,7 +3176,7 @@ sk_sp<SkImage> pesDocument::makePesBackgroundImageSnapshot(int idx) const {
 //                skpath.reset();
 //            }
 //
-//            canvas->flush();
+//            // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
 //            return surface->makeImageSnapshot();
 //        } else {
 //            SkDebugf("makePesImageSnapshot() sk_malloc_fail\n");
@@ -3190,8 +3193,18 @@ sk_sp<SkImage> pesDocument::makePesBackgroundImageSnapshot(int idx) const {
 #include "emscripten.h"
 #include "emscripten/fetch.h"
 #endif
-#include <include/effects/SkGradientShader.h>
+#include <include/effects/SkGradient.h>
 #include <include/utils/SkParsePath.h>
+
+// M150 replaced SkGradientShader::MakeRadial with SkShaders::RadialGradient,
+// which takes an SkGradient (colors + interpolation). Adapter keeps call sites
+// terse and matches the old default (even color distribution, sRGB).
+static sk_sp<SkShader> pesRadialGradient(SkPoint center, float radius,
+                                         SkSpan<const SkColor4f> colors,
+                                         SkTileMode tm) {
+    SkGradient grad(SkGradient::Colors(colors, tm), SkGradient::Interpolation{});
+    return SkShaders::RadialGradient(center, radius, grad);
+}
 #include <include/core/SkStrokeRec.h>
 
 #ifdef __EMSCRIPTEN__
@@ -3226,6 +3239,17 @@ void pes_emscriptenDownloadAsset( void *widget,
 
 void pesLoadOrDownloadAsset(const char* path, std::function<void(sk_sp<SkData> data)> onLoaded){
 #ifdef __EMSCRIPTEN__
+    // PES web build preloads resources into MEMFS (--preload-file) and sets the
+    // resource path via set_resource_path(). Read them synchronously like the
+    // native build; only fall back to a network fetch when the asset isn't
+    // present locally (preserves the old CanvasKit on-demand download path).
+    {
+        sk_sp<SkData> local = GetResourceAsData(path);
+        if (local && local->size()) {
+            onLoaded(local);
+            return;
+        }
+    }
     struct lamda_t{
         std::function<void(sk_sp<SkData> data)> onLoaded;
     };
@@ -3277,16 +3301,16 @@ uint8_t linestitch20x4_png_raw[linestitch20x4_png_raw_size] = {
 0,   0,   0,   0,   73,  69,  78,  68,  174, 66,  96,  130
 };
 
-sk_sp<SkImage> __lineStitch = SkImage::MakeFromEncoded(SkData::MakeWithoutCopy(linestitch20x4_png_raw, linestitch20x4_png_raw_size));
+sk_sp<SkImage> __lineStitch = SkImages::DeferredFromEncodedData(SkData::MakeWithoutCopy(linestitch20x4_png_raw, linestitch20x4_png_raw_size));
 
 sk_sp<SkImage> __lineStitch_40x8  = nullptr;
 sk_sp<SkImage> __lineStitch_60x12 = nullptr;
 sk_sp<SkImage> __lineStitch_80x16 = nullptr;
 
-sk_sp<SkSurface> __surface_20x4  = SkSurface::MakeRaster(SkImageInfo::Make(20,  4, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
-sk_sp<SkSurface> __surface_40x8  = SkSurface::MakeRaster(SkImageInfo::Make(40,  8, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
-sk_sp<SkSurface> __surface_60x12 = SkSurface::MakeRaster(SkImageInfo::Make(60, 12, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
-sk_sp<SkSurface> __surface_80x16 = SkSurface::MakeRaster(SkImageInfo::Make(80, 16, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
+sk_sp<SkSurface> __surface_20x4  = SkSurfaces::Raster(SkImageInfo::Make(20,  4, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
+sk_sp<SkSurface> __surface_40x8  = SkSurfaces::Raster(SkImageInfo::Make(40,  8, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
+sk_sp<SkSurface> __surface_60x12 = SkSurfaces::Raster(SkImageInfo::Make(60, 12, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
+sk_sp<SkSurface> __surface_80x16 = SkSurfaces::Raster(SkImageInfo::Make(80, 16, SkColorType::kRGBA_8888_SkColorType, SkAlphaType::kUnpremul_SkAlphaType));
 
 bool loadAssets(bool reload) {
     if (reload) {
@@ -3298,17 +3322,17 @@ bool loadAssets(bool reload) {
 
     if (__lineStitch_40x8 == nullptr)
         pesLoadOrDownloadAsset("texture/lineStitch-40x8.png", [=](sk_sp<SkData> data) {
-            __lineStitch_40x8 = SkImage::MakeFromEncoded(data);
+            __lineStitch_40x8 = SkImages::DeferredFromEncodedData(data);
             if (__lineStitch_40x8 && __lineStitch_60x12 && __lineStitch_80x16) _ready = true;
         });
     if (__lineStitch_60x12 == nullptr)
         pesLoadOrDownloadAsset("texture/lineStitch-60x12.png", [=](sk_sp<SkData> data) {
-            __lineStitch_60x12 = SkImage::MakeFromEncoded(data);
+            __lineStitch_60x12 = SkImages::DeferredFromEncodedData(data);
             if (__lineStitch_40x8 && __lineStitch_60x12 && __lineStitch_80x16) _ready = true;
         });
     if (__lineStitch_80x16 == nullptr)
         pesLoadOrDownloadAsset("texture/lineStitch-80x16.png", [=](sk_sp<SkData> data) {
-            __lineStitch_80x16 = SkImage::MakeFromEncoded(data);
+            __lineStitch_80x16 = SkImages::DeferredFromEncodedData(data);
             if (__lineStitch_40x8 && __lineStitch_60x12 && __lineStitch_80x16) _ready = true;
         });
     
@@ -3368,7 +3392,7 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
         size_t pixelLen = size_t(4) * w * h;         // // it's 8888, so 4 bytes per pixel
         void* pixelPtr = sk_malloc_throw(pixelLen);  // sk_malloc_canfail(pixelLen);
         if (pixelPtr) {
-            sk_sp<SkSurface> surface(SkSurface::MakeRasterDirectReleaseProc(imageInfo, pixelPtr, size_t(4) * w, release_direct_surface_storage, pixelPtr));
+            sk_sp<SkSurface> surface(SkSurfaces::WrapPixels(imageInfo, pixelPtr, size_t(4) * w, release_direct_surface_storage, pixelPtr));
             SkCanvas* canvas = surface->getCanvas();
             //canvas->translate((- x + margin), (- y + margin));
             canvas->translate(SkScalarHalf(w), SkScalarHalf(h));
@@ -3567,13 +3591,7 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
                             {1.0f, 1.0f, 1.0f, 0.6f},
                             {0.5f, 0.5f, 0.5f, 0.0f},
                         };
-                        auto shader = SkGradientShader::MakeRadial({cx, cy},
-                                                                    r,
-                                                                    colors,
-                                                                    nullptr,
-                                                                    nullptr,
-                                                                    std::size(colors),
-                                                                    SkTileMode::kClamp);
+                        auto shader = pesRadialGradient({cx, cy}, r, colors, SkTileMode::kClamp);
                         paint.setShader(std::move(shader));
                         paint.setBlendMode(SkBlendMode::kSrcATop);
                         canvasTemp->drawPaint(paint);
@@ -3653,7 +3671,7 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
                 }
             }
 
-            canvas->flush();
+            // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
             return surface->makeImageSnapshot();
         } 
         else {
@@ -3690,7 +3708,7 @@ sk_sp<SkImage> pesDocument::makePesImageSnapshot(int idx) const {
 //        size_t pixelLen = size_t(4) * w * h;         // // it's 8888, so 4 bytes per pixel
 //        void* pixelPtr = sk_malloc_throw(pixelLen);  // sk_malloc_canfail(pixelLen);
 //        if (pixelPtr) {
-//            sk_sp<SkSurface> surface(SkSurface::MakeRasterDirectReleaseProc(
+//            sk_sp<SkSurface> surface(SkSurfaces::WrapPixels(
 //                    imageInfo, pixelPtr, size_t(4) * w, release_direct_surface_storage, pixelPtr));
 //
 //            SkCanvas* canvas = surface->getCanvas();
@@ -3759,7 +3777,7 @@ sk_sp<SkImage> pesDocument::makePesImageSnapshot(int idx) const {
 //                }
 //            }
 //
-//            canvas->flush();
+//            // canvas->flush(); // removed: SkCanvas::flush() dropped in Skia M150 (raster draws are synchronous)
 //            return surface->makeImageSnapshot();
 //        } else {
 //            SkDebugf("makePesImageSnapshot2() sk_malloc_fail\n");
@@ -3929,13 +3947,7 @@ void pesDocument::drawPesObject(SkCanvas* canvas, int idx, float scale) const {
                         {1.0f, 1.0f, 1.0f, 0.6f},
                         {0.5f, 0.5f, 0.5f, 0.0f},
                     };
-                    auto shader = SkGradientShader::MakeRadial({cx, cy},
-                                                               r,
-                                                               colors,
-                                                               nullptr,
-                                                               nullptr,
-                                                               std::size(colors),
-                                                               SkTileMode::kClamp);
+                    auto shader = pesRadialGradient({cx, cy}, r, colors, SkTileMode::kClamp);
                     paint.setShader(std::move(shader));
                     paint.setBlendMode(SkBlendMode::kSrcATop);
                     canvasTemp->drawPaint(paint);
@@ -4136,7 +4148,7 @@ bool pesDocument::hasChanged() const {
 }
 
 SkPath pesStitchToSkPath(const pesStitchBlockList & blocks){
-    SkPath skpath;
+    PesPath skpath;
     for (auto& block : blocks) {
         auto vertices = block.polyline.getVertices();
         for (int i = 0; i < (int)vertices.size(); i++) {
@@ -4149,7 +4161,7 @@ SkPath pesStitchToSkPath(const pesStitchBlockList & blocks){
         }
     }
     float s = SK_PIXELS_PER_MM / PES_PIXELS_PER_MM;
-    return skpath.makeScale(s, s);
+    return skpath.skpath().makeScale(s, s);
 }
 
 SkPath pesRunStitch(SkPath p, float runPitch){

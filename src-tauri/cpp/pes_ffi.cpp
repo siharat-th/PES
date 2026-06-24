@@ -8,12 +8,31 @@
 #include "pesEffect.hpp"
 #include "pesPathUtility.hpp"
 #include "json.hpp"
+#include "pes_ffi_core.hpp" // shared extraction logic (also used by wasm/pes_web.cpp)
+#include "pes_edit_core.hpp" // shared PathEdit/StitchEdit/path-op logic (ditto)
 
 #include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPathUtils.h"
 #include "include/core/SkTypeface.h"
+#include "include/core/SkFontMgr.h"
 #include "include/pathops/SkPathOps.h"
+
+// SkTypeface::MakeFromData was removed in Skia M150; build typefaces from font
+// data through the platform font manager (native facade only).
+#if defined(__APPLE__)
+#include "include/ports/SkFontMgr_mac_ct.h"
+static sk_sp<SkFontMgr> pesSystemFontMgr() {
+    static sk_sp<SkFontMgr> mgr = SkFontMgr_New_CoreText(nullptr);
+    return mgr;
+}
+#elif defined(_WIN32)
+#include "include/ports/SkTypeface_win.h"
+static sk_sp<SkFontMgr> pesSystemFontMgr() {
+    static sk_sp<SkFontMgr> mgr = SkFontMgr_New_DirectWrite();
+    return mgr;
+}
+#endif
 #include "include/utils/SkTextUtils.h"
 
 #include "PesPPEFUtils.hpp" // apps2/1080_PES5Template/src/Utils (native SQLiteCpp)
@@ -56,22 +75,7 @@ rust::Vec<uint8_t> toRustVec(const sk_sp<SkData>& data) {
     return out;
 }
 
-// Mirrors PES5_ObjectTypeToString (apps2/1080_PES5Template/src/PES5Command.cpp).
-std::string objectTypeToString(int type) {
-    switch (type) {
-        case pesData::OBJECT_TYPE_PES2_TEXT:
-        case pesData::OBJECT_TYPE_PES:
-        case pesData::OBJECT_TYPE_SHAPE: return "Stitch";
-        case pesData::OBJECT_TYPE_BACKGROUND: return "Background";
-        case pesData::OBJECT_TYPE_SCALABLE_SVG_FILE: return "SVG";
-        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT: return "PPEF Text";
-        case pesData::OBJECT_TYPE_SCALABLE_TTF_TEXT: return "TTF Text";
-        case pesData::OBJECT_TYPE_SCALABLE_SATINCOLUMN: return "Satin Column";
-        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT_V2: return "Monogram";
-        case pesData::OBJECT_TYPE_SCALABLE_CONTAINER: return "Group";
-        default: return "Unknown";
-    }
-}
+using pescore::objectTypeToString; // shared (pes_ffi_core.hpp)
 
 } // namespace
 
@@ -293,11 +297,7 @@ rust::Vec<uint8_t> get_thumbnail_png(int32_t wmax, int32_t hmax, int32_t index) 
 
 namespace {
 
-std::string colorToHex(const pesColor& c) {
-    char sz[8];
-    std::snprintf(sz, sizeof sz, "#%02X%02X%02X", c.r, c.g, c.b);
-    return sz;
-}
+using pescore::colorToHex; // shared (pes_ffi_core.hpp)
 
 bool validPath(int32_t objIndex, int32_t pathIndex) {
     if (objIndex < 0 || objIndex >= doc()->getObjectCount())
@@ -315,56 +315,18 @@ bool hasStitch(int32_t objIndex) {
 } // namespace
 
 StitchData get_stitch_data(int32_t obj_index) {
+    pescore::StitchGeom geom = pescore::buildStitchData(doc(), obj_index);
     StitchData out;
-    out.total_points = 0;
-    int count = doc()->getObjectCount();
-
-    auto appendObject = [&](int idx) {
-        auto data = doc()->getDataObject(idx);
-        if (!data->parameter.visible)
-            return;
-        pesStitchBlockList blocks;
-        data->getStitchBlockList(blocks);
-        for (auto& block : blocks) {
-            std::string hex = colorToHex(block.color);
-            size_t n = block.polyline.size();
-            // split into runs of normal stitches; jumps break the thread line
-            size_t i = 0;
-            while (i < n) {
-                bool jump = i < block.types.size() && block.types[i] != 0;
-                if (jump) { // jump points still count toward simulator length
-                    out.coords.push_back(block.polyline[(int)i].x);
-                    out.coords.push_back(block.polyline[(int)i].y);
-                    out.total_points += 1;
-                    ++i;
-                    continue;
-                }
-                uint32_t start = (uint32_t)(out.coords.size() / 2);
-                uint32_t segCount = 0;
-                while (i < n &&
-                       !(i < block.types.size() && block.types[i] != 0)) {
-                    out.coords.push_back(block.polyline[(int)i].x);
-                    out.coords.push_back(block.polyline[(int)i].y);
-                    ++segCount;
-                    ++i;
-                }
-                if (segCount > 0) {
-                    StitchSegment seg;
-                    seg.hex = hex;
-                    seg.start = start;
-                    seg.count = segCount;
-                    out.segments.push_back(std::move(seg));
-                    out.total_points += segCount;
-                }
-            }
-        }
-    };
-
-    if (obj_index >= 0 && obj_index < count) {
-        appendObject(obj_index);
-    } else {
-        for (int i = 0; i < count; ++i)
-            appendObject(i);
+    out.total_points = geom.total_points;
+    out.coords.reserve(geom.coords.size());
+    for (float f : geom.coords)
+        out.coords.push_back(f);
+    for (auto& s : geom.segments) {
+        StitchSegment seg;
+        seg.hex = s.hex;
+        seg.start = s.start;
+        seg.count = s.count;
+        out.segments.push_back(std::move(seg));
     }
     return out;
 }
@@ -487,36 +449,7 @@ void flip_object(int32_t obj_index, bool horizontal) {
 rust::String get_parameter_json(int32_t obj_index) {
     if (obj_index < 0 || obj_index >= doc()->getObjectCount())
         return rust::String("{}");
-    auto& p = doc()->getDataParameter(obj_index);
-    nlohmann::json j{
-        {"text", p.text},
-        {"fontName", p.fontName},
-        {"fontSize", p.fontSize},
-        {"colorIndex", p.colorIndex},
-        {"borderColorIndex", p.borderColorIndex},
-        {"shapeIndex", p.shapeIndex},
-        {"angleValue", p.angleValue},
-        {"radiusValue", p.radiusValue},
-        {"italic", p.italic},
-        {"border", p.border},
-        {"borderGap", p.borderGap},
-        {"borderGapY", p.borderGapY},
-        {"extraLetterSpace", p.extraLetterSpace},
-        {"extraSpace", p.extraSpace},
-        {"density", p.density},
-        {"pullCompensate", p.pullCompensate},
-        {"fillTypeIndex", p.fillTypeIndex},
-        {"fillColorIndex", p.fillColorIndex},
-        {"fillUnderlay", p.fill.underlay},
-        {"fillDensity", p.fill.density},
-        {"fillDirection", p.fill.sewDirection},
-        {"strokeTypeIndex", p.strokeTypeIndex},
-        {"strokeRunPitch", p.strokeRunPitch},
-        {"strokeWidth", p.strokeWidth},
-        {"strokeDensity", p.strokeDensity},
-        {"strokeRunningInset", p.strokeRunningInset},
-    };
-    return rust::String(j.dump());
+    return rust::String(pescore::parameterToJson(doc()->getDataParameter(obj_index)).dump());
 }
 
 bool set_param_num(int32_t obj_index, rust::Str key, float value) {
@@ -691,59 +624,8 @@ bool update_ppef_text(int32_t obj_index) {
 
 namespace {
 
-// Port of PES5Template::SkiaPathStroke (bindings line ~690)
-SkPath skiaPathStroke(const SkPath& skPath, float value) {
-    SkPath newPath;
-    SkPaint paint;
-    paint.setStyle(SkPaint::Style::kStroke_Style);
-    paint.setStrokeWidth(value * 2);
-    paint.setStrokeCap(SkPaint::Cap::kButt_Cap);
-    paint.setStrokeJoin(SkPaint::Join::kMiter_Join);
-    skpathutils::FillPathWithPaint(skPath, paint, &newPath);
-    return newPath;
-}
-
-// Replace paths[idx] with a new SkPath, preserving style attributes.
-void replacePath(pesData* pes, int idx, const SkPath& skPath) {
-    pesPath& tpath = pes->paths[idx];
-    bool isFill = tpath.isFill();
-    float strokeWidth = tpath.getStrokeWidth();
-    pesColor strokeColor = tpath.getStrokeColor();
-    pesColor fillColor = tpath.getFillColor();
-    std::string path_id = tpath.path_id;
-    std::string group_id = tpath.group_id;
-
-    pesPath path = toPes(skPath);
-    path.setStrokeColor(strokeColor);
-    path.setFillColor(fillColor);
-    path.setStrokeWidth(strokeWidth);
-    path.setFilled(isFill);
-    path.path_id = path_id;
-    path.group_id = group_id;
-
-    pes->paths[idx].clear();
-    pes->paths[idx] = path;
-}
-
-// Regenerate stitches after a geometry change. The fill regenerator is
-// type-dependent — using applyFill() on PPEF/Monogram text wipes the fill
-// (0 stitches, colors reset). Mirrors PES5_StopPathEditInput.
-void reapplyStitches(int32_t objIndex, pesData* pes) {
-    if (!hasStitch(objIndex))
-        return;
-    switch (pes->parameter.type) {
-        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT:
-            pes->applyPPEFFill();
-            break;
-        case pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT_V2:
-            pes->applyPPEF_V2_Fill();
-            break;
-        default:
-            pes->applyFill();
-            break;
-    }
-    pes->applyStroke();
-}
+// skiaPathStroke / replacePath / reapplyStitches now live in pes_edit_core.hpp
+// (namespace pescore) so desktop and web share one copy.
 
 } // namespace
 
@@ -765,7 +647,7 @@ bool update_ttf_text(int32_t obj_index) {
         GetResourceAsData(("TTF/" + param.fontName + ".ttf").c_str());
     if (!fontData)
         return false; // font file not bundled — leave object untouched
-    sk_sp<SkTypeface> typeface = SkTypeface::MakeFromData(fontData);
+    sk_sp<SkTypeface> typeface = pesSystemFontMgr()->makeFromData(fontData);
     if (!typeface)
         return false;
 
@@ -816,115 +698,9 @@ bool update_ttf_text(int32_t obj_index) {
     return true;
 }
 
-// Path operations — ported from PES5Template_bindings.cpp (lines 508-880).
+// Path operations — see pescore::pathOp (pes_edit_core.hpp).
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op_, float value) {
-    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    int n = (int)pes->paths.size();
-    std::string op(op_);
-
-    if (op == "up") {
-        if (path_index < 1 || path_index >= n) return false;
-        std::swap(pes->paths[path_index], pes->paths[path_index - 1]);
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "down") {
-        if (path_index < 0 || path_index >= n - 1) return false;
-        std::swap(pes->paths[path_index], pes->paths[path_index + 1]);
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "inset" || op == "outset") {
-        if (path_index < 0 || path_index >= n) return false;
-        SkPath skPath = toSk(pes->paths[path_index]);
-        SkPath outlinePath = skiaPathStroke(skPath, value);
-        Simplify(outlinePath, &outlinePath);
-        Op(outlinePath, skPath,
-           op == "inset" ? SkPathOp::kReverseDifference_SkPathOp
-                         : SkPathOp::kDifference_SkPathOp,
-           &outlinePath);
-        replacePath(pes, path_index, outlinePath);
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "simplify") {
-        if (path_index < 0 || path_index >= n) return false;
-        pesPath& tpath = pes->paths[path_index];
-        std::vector<pesPath> subpath = tpath.getSubPath();
-        SkPath skPath = toSk(tpath);
-        if (!subpath.empty())
-            skPath = toSk(subpath[0]);
-        Simplify(skPath, &skPath);
-        replacePath(pes, path_index, skPath);
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "unite_next") {
-        if (path_index < 0 || path_index >= n - 1) return false;
-        SkPath path1 = toSk(pes->paths[path_index]);
-        SkPath path2 = toSk(pes->paths[path_index + 1]);
-        Op(path1, path2, SkPathOp::kUnion_SkPathOp, &path1);
-        replacePath(pes, path_index, path1);
-        pes->paths[path_index + 1].clear();
-        pes->paths.erase(pes->paths.begin() + (path_index + 1));
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "separate") {
-        if (path_index < 0 || path_index >= n) return false;
-        pesPath& tpath = pes->paths[path_index];
-        bool isFill = tpath.isFill();
-        float strokeWidth = tpath.getStrokeWidth();
-        pesColor strokeColor = tpath.getStrokeColor();
-        pesColor fillColor = tpath.getFillColor();
-        std::vector<pesPath> subpaths = tpath.getSubPath();
-        for (size_t i = 0; i < subpaths.size(); ++i) {
-            pesPath path = subpaths[i];
-            path.setStrokeColor(strokeColor);
-            path.setFillColor(fillColor);
-            path.setStrokeWidth(strokeWidth);
-            path.setFilled(isFill);
-            pes->paths.insert(pes->paths.begin() + (path_index + i + 1), path);
-        }
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    if (op == "erase_under") {
-        if (path_index < 1 || path_index >= n) return false;
-        SkPath eraserPath = toSk(pes->paths[path_index]);
-        for (int ip = 0; ip < path_index; ++ip) {
-            pesPath& tpath = pes->paths[ip];
-            if (!tpath.bVisible)
-                continue;
-            bool isFill = tpath.isFill();
-            bool isStroke = tpath.isStroke();
-            pesColor strokeColor = tpath.getStrokeColor();
-            SkPath targetPath = toSk(tpath);
-            if (isStroke && !isFill) {
-                SkPath outlinePath = skiaPathStroke(
-                    targetPath,
-                    tpath.getStrokeWidth() / 2 * pes->parameter.ppefScaleX);
-                Op(outlinePath, eraserPath, SkPathOp::kDifference_SkPathOp,
-                   &targetPath);
-                pesPath path = toPes(targetPath);
-                path.setStrokeColor(strokeColor);
-                path.setFillColor(strokeColor);
-                path.setStrokeWidth(0);
-                path.setFilled(true);
-                pes->paths[ip].clear();
-                pes->paths[ip] = path;
-            } else {
-                Op(eraserPath, targetPath, SkPathOp::kReverseDifference_SkPathOp,
-                   &targetPath);
-                replacePath(pes, ip, targetPath);
-            }
-        }
-        reapplyStitches(obj_index, pes);
-        return true;
-    }
-    return false;
+    return pescore::pathOp(doc(), obj_index, path_index, std::string(op_), value);
 }
 
 bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {
@@ -946,94 +722,26 @@ bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {
 
 rust::Vec<PathNode> get_path_nodes(int32_t obj_index, int32_t path_index) {
     rust::Vec<PathNode> out;
-    if (!validPath(obj_index, path_index))
-        return out;
-    auto data = doc()->getDataObject(obj_index);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    pesVec2f center = data->getBoundingBox().getCenter();
-    auto toWorld = [&](float x, float y) -> pesVec2f {
-        pesVec2f v(x, y);
-        if (std::abs(angle) > 1e-4f)
-            v.rotate(angle, center);
-        return v;
-    };
-    for (const auto& c : data->paths[path_index].getCommands()) {
-        PathNode n{};
-        n.node_type = (int32_t)c.type;
-        pesVec2f to = toWorld(c.to.x, c.to.y);
-        pesVec2f cp1 = toWorld(c.cp1.x, c.cp1.y);
-        pesVec2f cp2 = toWorld(c.cp2.x, c.cp2.y);
-        n.x = to.x;   n.y = to.y;
-        n.cp1x = cp1.x; n.cp1y = cp1.y;
-        n.cp2x = cp2.x; n.cp2y = cp2.y;
-        out.push_back(n);
+    for (const auto& n : pescore::getPathNodes(doc(), obj_index, path_index)) {
+        PathNode pn{};
+        pn.node_type = n.node_type;
+        pn.x = n.x;     pn.y = n.y;
+        pn.cp1x = n.cp1x; pn.cp1y = n.cp1y;
+        pn.cp2x = n.cp2x; pn.cp2y = n.cp2y;
+        out.push_back(pn);
     }
     return out;
 }
 
 bool move_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
                     float world_dx, float world_dy) {
-    if (!validPath(obj_index, path_index))
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    auto& cmds = pes->paths[path_index].getCommands();
-    if (node_index < 0 || node_index >= (int32_t)cmds.size())
-        return false;
-
-    // world delta → local delta (undo the object's display rotation)
-    pesVec2f d(world_dx, world_dy);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    if (std::abs(angle) > 1e-4f)
-        d.rotate(-angle); // rotate the vector about the origin
-
-    using Cmd = pesPath::Command;
-    auto& c = cmds[node_index];
-    c.to.x += d.x; c.to.y += d.y;
-    // the curve arriving at this node keeps its shape → move its near handle
-    if (c.type == Cmd::_bezierTo || c.type == Cmd::_quadBezierTo) {
-        c.cp2.x += d.x; c.cp2.y += d.y;
-    }
-    // the curve leaving this node lives on the next command → move its handle
-    if (node_index + 1 < (int32_t)cmds.size()) {
-        auto& nx = cmds[node_index + 1];
-        if (nx.type == Cmd::_bezierTo) {
-            nx.cp1.x += d.x; nx.cp1.y += d.y;
-        } else if (nx.type == Cmd::_quadBezierTo) {
-            // a quad's cp1 IS its start point (== this anchor), cp2 the control
-            nx.cp1.x += d.x; nx.cp1.y += d.y;
-            nx.cp2.x += d.x; nx.cp2.y += d.y;
-        }
-    }
-    pes->paths[path_index].flagShapeChanged();
-    reapplyStitches(obj_index, pes);
-    return true;
+    return pescore::movePathNode(doc(), obj_index, path_index, node_index, world_dx, world_dy);
 }
 
 bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
                       int32_t cp_slot, float world_dx, float world_dy) {
-    if (!validPath(obj_index, path_index))
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    auto& cmds = pes->paths[path_index].getCommands();
-    if (cmd_index < 0 || cmd_index >= (int32_t)cmds.size())
-        return false;
-
-    pesVec2f d(world_dx, world_dy);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    if (std::abs(angle) > 1e-4f)
-        d.rotate(-angle);
-
-    auto& c = cmds[cmd_index];
-    if (cp_slot == 1) {
-        c.cp1.x += d.x; c.cp1.y += d.y;
-    } else if (cp_slot == 2) {
-        c.cp2.x += d.x; c.cp2.y += d.y;
-    } else {
-        return false;
-    }
-    pes->paths[path_index].flagShapeChanged();
-    reapplyStitches(obj_index, pes);
-    return true;
+    return pescore::movePathHandle(doc(), obj_index, path_index, cmd_index, cp_slot,
+                                   world_dx, world_dy);
 }
 
 // Insert a node on the segment whose end command is node_index, subdividing at
@@ -1041,99 +749,11 @@ bool move_path_handle(int32_t obj_index, int32_t path_index, int32_t cmd_index,
 // no world<->local conversion (unlike the move ops which receive a delta).
 bool insert_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
                       float t) {
-    if (!validPath(obj_index, path_index))
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    auto& cmds = pes->paths[path_index].getCommands();
-    const int k = node_index;
-    if (k < 1 || k >= (int32_t)cmds.size())
-        return false; // need a predecessor anchor at k-1
-
-    using Cmd = pesPath::Command;
-    auto& seg = cmds[k];
-    if (seg.type != Cmd::_lineTo && seg.type != Cmd::_bezierTo &&
-        seg.type != Cmd::_quadBezierTo)
-        return false; // no interpolatable segment (moveTo/close/arc)
-
-    if (t < 1e-3f) t = 1e-3f;
-    if (t > 1.f - 1e-3f) t = 1.f - 1e-3f;
-
-    auto lerp = [t](const pesVec3f& a, const pesVec3f& b) {
-        pesVec3f r;
-        r.x = a.x + (b.x - a.x) * t;
-        r.y = a.y + (b.y - a.y) * t;
-        r.z = a.z + (b.z - a.z) * t;
-        return r;
-    };
-
-    const pesVec3f P0 = cmds[k - 1].to;
-
-    if (seg.type == Cmd::_lineTo) {
-        Cmd mid = seg;                  // copy preserves style fields
-        mid.to = lerp(P0, seg.to);
-        cmds.insert(cmds.begin() + k, mid); // new lineTo, old shifts to k+1
-    } else if (seg.type == Cmd::_bezierTo) {
-        // cubic de Casteljau: net P0, cp1, cp2, to
-        const pesVec3f A = lerp(P0, seg.cp1);
-        const pesVec3f B = lerp(seg.cp1, seg.cp2);
-        const pesVec3f C = lerp(seg.cp2, seg.to);
-        const pesVec3f AB = lerp(A, B);
-        const pesVec3f BC = lerp(B, C);
-        const pesVec3f M = lerp(AB, BC); // split point, on the curve
-        Cmd left = seg;  left.to = M;       left.cp1 = A;  left.cp2 = AB;
-        Cmd right = seg; right.to = seg.to; right.cp1 = BC; right.cp2 = C;
-        cmds[k] = left;
-        cmds.insert(cmds.begin() + k + 1, right);
-    } else { // _quadBezierTo: cp1 = START point, cp2 = control, to = end
-        const pesVec3f A = lerp(P0, seg.cp2);
-        const pesVec3f Bq = lerp(seg.cp2, seg.to);
-        const pesVec3f M = lerp(A, Bq);
-        Cmd left = seg;  left.to = M;       left.cp1 = P0; left.cp2 = A;
-        Cmd right = seg; right.to = seg.to; right.cp1 = M;  right.cp2 = Bq;
-        cmds[k] = left;
-        cmds.insert(cmds.begin() + k + 1, right);
-    }
-
-    pes->paths[path_index].flagShapeChanged();
-    reapplyStitches(obj_index, pes);
-    return true;
+    return pescore::insertPathNode(doc(), obj_index, path_index, node_index, t);
 }
 
 bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index) {
-    if (!validPath(obj_index, path_index))
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    auto& cmds = pes->paths[path_index].getCommands();
-    const int k = node_index;
-    if (k < 0 || k >= (int32_t)cmds.size())
-        return false;
-
-    using Cmd = pesPath::Command;
-    if (cmds[k].type == Cmd::_moveTo || cmds[k].type == Cmd::_close)
-        return false; // never orphan a subpath start / drop the close marker
-
-    // keep the owning subpath from collapsing (need >= 2 anchors remaining)
-    int start = k;
-    while (start > 0 && cmds[start].type != Cmd::_moveTo)
-        --start;
-    int end = k + 1;
-    while (end < (int)cmds.size() && cmds[end].type != Cmd::_moveTo)
-        ++end;
-    int anchors = 0;
-    for (int j = start; j < end; ++j)
-        if (cmds[j].type != Cmd::_close)
-            ++anchors;
-    if (anchors <= 2)
-        return false;
-
-    cmds.erase(cmds.begin() + k);
-    // a quad now starting from the new predecessor must carry its start point
-    // (stored in cp1) forward, else the curve gaps to the old anchor position
-    if (k >= 1 && k < (int)cmds.size() && cmds[k].type == Cmd::_quadBezierTo)
-        cmds[k].cp1 = cmds[k - 1].to;
-    pes->paths[path_index].flagShapeChanged();
-    reapplyStitches(obj_index, pes);
-    return true;
+    return pescore::deletePathNode(doc(), obj_index, path_index, node_index);
 }
 
 // Convert a node's incoming segment between a straight corner (lineTo) and a
@@ -1144,44 +764,7 @@ bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index)
 // conversion is needed (handles are derived from already-stored local coords).
 bool set_path_node_type(int32_t obj_index, int32_t path_index, int32_t node_index,
                         bool to_curve) {
-    if (!validPath(obj_index, path_index))
-        return false;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    auto& cmds = pes->paths[path_index].getCommands();
-    const int k = node_index;
-    if (k < 1 || k >= (int32_t)cmds.size())
-        return false; // need a predecessor anchor at k-1 (a moveTo has none)
-
-    using Cmd = pesPath::Command;
-    auto& c = cmds[k];
-    const pesVec3f P0 = cmds[k - 1].to;
-
-    if (to_curve) {
-        if (c.type == Cmd::_bezierTo)
-            return false; // already a cubic curve — nothing to do
-        if (c.type != Cmd::_lineTo && c.type != Cmd::_quadBezierTo)
-            return false; // only straight/quad segments convert (not arc/close)
-        // collinear handles at 1/3 & 2/3 keep the drawn shape until a drag
-        auto along = [&](float f) {
-            pesVec3f r;
-            r.x = P0.x + (c.to.x - P0.x) * f;
-            r.y = P0.y + (c.to.y - P0.y) * f;
-            r.z = P0.z + (c.to.z - P0.z) * f;
-            return r;
-        };
-        c.cp1 = along(1.f / 3.f);
-        c.cp2 = along(2.f / 3.f);
-        c.type = Cmd::_bezierTo;
-    } else {
-        if (c.type == Cmd::_lineTo)
-            return false; // already a corner
-        if (c.type != Cmd::_bezierTo && c.type != Cmd::_quadBezierTo)
-            return false; // only curves convert to a corner
-        c.type = Cmd::_lineTo; // straight segment; cp1/cp2 are ignored for lineTo
-    }
-    pes->paths[path_index].flagShapeChanged();
-    reapplyStitches(obj_index, pes);
-    return true;
+    return pescore::setPathNodeType(doc(), obj_index, path_index, node_index, to_curve);
 }
 
 // --- StitchEdit -------------------------------------------------------------
@@ -1194,149 +777,43 @@ bool set_path_node_type(int32_t obj_index, int32_t path_index, int32_t node_inde
 // truth (no regeneration), so an edit just mutates them and recalculates the
 // cached totals/bbox.
 
-namespace {
-
-pesStitchBlockList* stitchBlockListOf(pesData* pes, int32_t kind) {
-    if (kind == 0) return &pes->fillBlocks;
-    if (kind == 1) return &pes->strokeBlocks;
-    return nullptr;
-}
-
-// Resolve (obj,kind,block,point) to the vertex vector + index, or null block.
-pesStitchBlock* stitchBlockAt(int32_t obj_index, int32_t kind, int32_t block_index) {
-    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
-        return nullptr;
-    pesData* pes = doc()->getDataObject(obj_index).get();
-    pesStitchBlockList* list = stitchBlockListOf(pes, kind);
-    if (!list || block_index < 0 || block_index >= (int32_t)list->size())
-        return nullptr;
-    return &(*list)[block_index];
-}
-
-} // namespace
-
 rust::Vec<StitchBlock> get_stitch_points(int32_t obj_index) {
     rust::Vec<StitchBlock> out;
-    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
-        return out;
-    auto data = doc()->getDataObject(obj_index);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    pesVec2f center = data->getBoundingBox().getCenter();
-    auto toWorld = [&](const pesVec2f& v) -> pesVec2f {
-        pesVec2f w(v.x, v.y);
-        if (std::abs(angle) > 1e-4f)
-            w.rotate(angle, center);
-        return w;
-    };
-    auto appendList = [&](pesStitchBlockList& list, int32_t kind) {
-        for (size_t bi = 0; bi < list.size(); ++bi) {
-            auto& block = list[bi];
-            auto& verts = block.polyline.getVertices();
-            if (verts.empty())
-                continue; // empty blocks aren't drawn (getStitchBlockList drops them)
-            StitchBlock sb;
-            sb.kind = kind;
-            sb.block_index = (int32_t)bi;
-            sb.hex = colorToHex(block.color);
-            for (size_t i = 0; i < verts.size(); ++i) {
-                StitchPoint p{};
-                pesVec2f w = toWorld(verts[i]);
-                p.x = w.x;
-                p.y = w.y;
-                p.jump = i < block.types.size() && block.types[i] != 0;
-                sb.points.push_back(p);
-            }
-            out.push_back(std::move(sb));
+    for (auto& b : pescore::getStitchPoints(doc(), obj_index)) {
+        StitchBlock sb;
+        sb.kind = b.kind;
+        sb.block_index = b.block_index;
+        sb.hex = b.hex;
+        for (auto& p : b.points) {
+            StitchPoint sp{};
+            sp.x = p.x; sp.y = p.y; sp.jump = p.jump;
+            sb.points.push_back(sp);
         }
-    };
-    appendList(data->fillBlocks, 0);
-    appendList(data->strokeBlocks, 1);
+        out.push_back(std::move(sb));
+    }
     return out;
 }
 
 bool move_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
                        int32_t point_index, float world_dx, float world_dy) {
-    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
-    if (!block)
-        return false;
-    auto& verts = block->polyline.getVertices();
-    if (point_index < 0 || point_index >= (int32_t)verts.size())
-        return false;
-    // world delta → local delta (undo the object's display rotation)
-    pesVec2f d(world_dx, world_dy);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    if (std::abs(angle) > 1e-4f)
-        d.rotate(-angle);
-    verts[point_index].translate(d);
-    doc()->getDataObject(obj_index)->recalculate();
-    return true;
+    return pescore::moveStitchPoint(doc(), obj_index, kind, block_index, point_index,
+                                    world_dx, world_dy);
 }
 
 bool insert_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
                          int32_t point_index) {
-    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
-    if (!block)
-        return false;
-    auto& verts = block->polyline.getVertices();
-    const int32_t n = (int32_t)verts.size();
-    if (n < 2 || point_index < 0 || point_index >= n)
-        return false;
-    // last point splits the segment before it; otherwise the one after it
-    int32_t leftIndex, rightIndex;
-    if (point_index == n - 1) {
-        leftIndex = point_index - 1;
-        rightIndex = point_index;
-    } else {
-        leftIndex = point_index;
-        rightIndex = point_index + 1;
-    }
-    pesVec2f mid = (verts[leftIndex] + verts[rightIndex]) / 2.0f;
-    verts.insert(verts.begin() + rightIndex, mid);
-    // keep `types` parallel — the inserted midpoint is a normal stitch
-    if (rightIndex <= (int32_t)block->types.size())
-        block->types.insert(block->types.begin() + rightIndex,
-                            (uint8_t)NORMAL_STITCH);
-    doc()->getDataObject(obj_index)->recalculate();
-    return true;
+    return pescore::insertStitchPoint(doc(), obj_index, kind, block_index, point_index);
 }
 
-// Insert a needle point at a given WORLD position, right after after_index
-// (used by double-click-on-a-thread-line). The world point is un-rotated back
-// to local space around the bbox center — inverse of get_stitch_points.
 bool insert_stitch_point_at(int32_t obj_index, int32_t kind, int32_t block_index,
                             int32_t after_index, float world_x, float world_y) {
-    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
-    if (!block)
-        return false;
-    auto& verts = block->polyline.getVertices();
-    if (after_index < 0 || after_index >= (int32_t)verts.size())
-        return false;
-    auto data = doc()->getDataObject(obj_index);
-    pesVec2f p(world_x, world_y);
-    float angle = doc()->getDataParameter(obj_index).rotateDegree;
-    if (std::abs(angle) > 1e-4f)
-        p.rotate(-angle, data->getBoundingBox().getCenter());
-    const int32_t at = after_index + 1;
-    verts.insert(verts.begin() + at, p);
-    if (at <= (int32_t)block->types.size())
-        block->types.insert(block->types.begin() + at, (uint8_t)NORMAL_STITCH);
-    data->recalculate();
-    return true;
+    return pescore::insertStitchPointAt(doc(), obj_index, kind, block_index, after_index,
+                                        world_x, world_y);
 }
 
 bool delete_stitch_point(int32_t obj_index, int32_t kind, int32_t block_index,
                          int32_t point_index) {
-    pesStitchBlock* block = stitchBlockAt(obj_index, kind, block_index);
-    if (!block)
-        return false;
-    auto& verts = block->polyline.getVertices();
-    if (point_index < 0 || point_index >= (int32_t)verts.size())
-        return false;
-    verts.erase(verts.begin() + point_index);
-    if (point_index < (int32_t)block->types.size())
-        block->types.erase(block->types.begin() + point_index);
-    doc()->getDataObject(obj_index)->recalculate();
-    return true;
+    return pescore::deleteStitchPoint(doc(), obj_index, kind, block_index, point_index);
 }
 
 } // namespace pesffi
