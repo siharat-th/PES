@@ -184,7 +184,11 @@ export default function StitchEditLayer() {
       const b = blocks[bi];
       const pts = b.points;
       for (let i = 0; i < pts.length - 1; i++) {
-        if (pts[i].jump || pts[i + 1].jump) continue; // only drawn segments
+        // A segment is a solid thread line (insertable) when the travel INTO
+        // its end point isn't a jump — matches the renderer, which draws the
+        // move OUT of a jump (e.g. the lead-in jump → first stitch) as a normal
+        // line. Keying on pts[i].jump too would wrongly skip that first segment.
+        if (pts[i + 1].jump) continue; // skip dashed jump-travel segments
         const ax = pts[i].x, ay = pts[i].y;
         const dx = pts[i + 1].x - ax, dy = pts[i + 1].y - ay;
         const len2 = dx * dx + dy * dy;
