@@ -569,6 +569,24 @@ pub async fn delete_path_node(
     .await
 }
 
+/// Convert the node's incoming segment between corner (line) and curve (bezier).
+#[tauri::command]
+pub async fn set_path_node_type(
+    index: i32,
+    path_index: i32,
+    node_index: i32,
+    to_curve: bool,
+) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        // refusal (moveTo/close, or already the target type) is a benign no-op
+        history::run_undoable_checked(|eng| {
+            eng.set_path_node_type(index, path_index, node_index, to_curve)
+        });
+        document_snapshot()
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn get_stitch_points(index: i32) -> Result<Vec<StitchBlock>, String> {
     run_blocking(move || with_engine(|eng| eng.stitch_points(index))).await

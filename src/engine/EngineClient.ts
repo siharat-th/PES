@@ -223,6 +223,17 @@ export async function deletePathNode(
   return invoke("delete_path_node", { index, pathIndex, nodeIndex });
 }
 
+/** Convert a node's incoming segment between corner (line) and curve (bezier).
+ *  toCurve=true seeds shape-preserving handles; false drops to a straight line. */
+export async function setPathNodeType(
+  index: number,
+  pathIndex: number,
+  nodeIndex: number,
+  toCurve: boolean,
+): Promise<DocumentSnapshot> {
+  return invoke("set_path_node_type", { index, pathIndex, nodeIndex, toCurve });
+}
+
 /** Needle points of an object's stitch blocks (world coords) for StitchEdit. */
 export async function getStitchPoints(
   index: number,

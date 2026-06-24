@@ -6,6 +6,7 @@ import ObjectsLayer from "./ObjectsLayer";
 import StitchLayer from "./StitchLayer";
 import PathEditLayer from "./PathEditLayer";
 import StitchEditLayer from "./StitchEditLayer";
+import PathNodeMenu from "./PathNodeMenu";
 import { ViewContext } from "./viewContext";
 import { useDocumentStore } from "../state/documentStore";
 import { useViewportStore } from "../state/viewportStore";
@@ -157,6 +158,8 @@ export default function EmbroideryStage() {
           {viewMode === "stitchEdit" && <StitchEditLayer />}
         </Stage>
       </ViewContext.Provider>
+      {/* HTML overlay (lives outside the Konva Stage) — path-node right-click menu */}
+      {viewMode === "pathEdit" && <PathNodeMenu />}
     </div>
   );
 }

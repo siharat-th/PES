@@ -1136,6 +1136,54 @@ bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index)
     return true;
 }
 
+// Convert a node's incoming segment between a straight corner (lineTo) and a
+// smooth cubic curve (bezierTo). corner->curve seeds collinear 1/3 & 2/3 handles
+// so the shape is preserved until a handle is dragged; curve->corner drops to a
+// lineTo (a quad collapses to a line too). moveTo/close have no editable
+// incoming segment and are rejected. Like move/insert, t-free so no rotation
+// conversion is needed (handles are derived from already-stored local coords).
+bool set_path_node_type(int32_t obj_index, int32_t path_index, int32_t node_index,
+                        bool to_curve) {
+    if (!validPath(obj_index, path_index))
+        return false;
+    pesData* pes = doc()->getDataObject(obj_index).get();
+    auto& cmds = pes->paths[path_index].getCommands();
+    const int k = node_index;
+    if (k < 1 || k >= (int32_t)cmds.size())
+        return false; // need a predecessor anchor at k-1 (a moveTo has none)
+
+    using Cmd = pesPath::Command;
+    auto& c = cmds[k];
+    const pesVec3f P0 = cmds[k - 1].to;
+
+    if (to_curve) {
+        if (c.type == Cmd::_bezierTo)
+            return false; // already a cubic curve — nothing to do
+        if (c.type != Cmd::_lineTo && c.type != Cmd::_quadBezierTo)
+            return false; // only straight/quad segments convert (not arc/close)
+        // collinear handles at 1/3 & 2/3 keep the drawn shape until a drag
+        auto along = [&](float f) {
+            pesVec3f r;
+            r.x = P0.x + (c.to.x - P0.x) * f;
+            r.y = P0.y + (c.to.y - P0.y) * f;
+            r.z = P0.z + (c.to.z - P0.z) * f;
+            return r;
+        };
+        c.cp1 = along(1.f / 3.f);
+        c.cp2 = along(2.f / 3.f);
+        c.type = Cmd::_bezierTo;
+    } else {
+        if (c.type == Cmd::_lineTo)
+            return false; // already a corner
+        if (c.type != Cmd::_bezierTo && c.type != Cmd::_quadBezierTo)
+            return false; // only curves convert to a corner
+        c.type = Cmd::_lineTo; // straight segment; cp1/cp2 are ignored for lineTo
+    }
+    pes->paths[path_index].flagShapeChanged();
+    reapplyStitches(obj_index, pes);
+    return true;
+}
+
 // --- StitchEdit -------------------------------------------------------------
 // Port of PesStitchEdit (apps2/1080_PES5Template/src/Utils/PesSatinColumn.cpp)
 // + the PES5_StitchEdit* command flow. The object's needle points live in

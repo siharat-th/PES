@@ -90,6 +90,10 @@ bool insert_path_node(int32_t obj_index, int32_t path_index, int32_t node_index,
 // Delete the anchor command at node_index (refuses moveTo/close or collapsing
 // a subpath below 2 anchors).
 bool delete_path_node(int32_t obj_index, int32_t path_index, int32_t node_index);
+// Convert a node's incoming segment between corner (lineTo) and curve (bezierTo).
+// to_curve seeds collinear handles (shape-preserving); !to_curve drops to a line.
+bool set_path_node_type(int32_t obj_index, int32_t path_index, int32_t node_index,
+                        bool to_curve);
 
 // StitchEdit mode — edits the raw needle points of an object's stitch blocks
 // (fillBlocks = kind 0, strokeBlocks = kind 1). Points are reported/moved in

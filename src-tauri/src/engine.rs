@@ -198,6 +198,12 @@ mod ffi {
         ) -> bool;
         fn insert_path_node(obj_index: i32, path_index: i32, node_index: i32, t: f32) -> bool;
         fn delete_path_node(obj_index: i32, path_index: i32, node_index: i32) -> bool;
+        fn set_path_node_type(
+            obj_index: i32,
+            path_index: i32,
+            node_index: i32,
+            to_curve: bool,
+        ) -> bool;
 
         fn get_stitch_points(obj_index: i32) -> Vec<StitchBlock>;
         fn move_stitch_point(
@@ -470,6 +476,16 @@ impl Engine<'_> {
 
     pub fn delete_path_node(&self, obj_index: i32, path_index: i32, node_index: i32) -> bool {
         ffi::delete_path_node(obj_index, path_index, node_index)
+    }
+
+    pub fn set_path_node_type(
+        &self,
+        obj_index: i32,
+        path_index: i32,
+        node_index: i32,
+        to_curve: bool,
+    ) -> bool {
+        ffi::set_path_node_type(obj_index, path_index, node_index, to_curve)
     }
 
     pub fn stitch_points(&self, obj_index: i32) -> Vec<StitchBlock> {

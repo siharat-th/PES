@@ -13,6 +13,7 @@ import {
 import { PATH_CMD } from "../engine/types";
 import type { PathNode } from "../engine/types";
 import { useView, layerTransform } from "./viewContext";
+import { usePathNodeMenu } from "./PathNodeMenu";
 
 interface PathNodes {
   pathIndex: number;
@@ -120,6 +121,7 @@ export default function PathEditLayer() {
   const selectedIndex = useDocumentStore((s) => s.selectedIndex);
   const applyPathEdit = useDocumentStore((s) => s.applyPathEdit);
   const busy = useDocumentStore((s) => s.busy);
+  const showNodeMenu = usePathNodeMenu((s) => s.show);
 
   const [paths, setPaths] = useState<PathNodes[]>([]);
   const [sel, setSel] = useState<{ p: number; i: number } | null>(null);
@@ -248,10 +250,27 @@ export default function PathEditLayer() {
   };
 
   // shared drag/select handlers for an anchor (square or circle)
-  const anchorHandlers = (p: number, i: number) => ({
+  const anchorHandlers = (p: number, i: number, nodeType: number) => ({
     draggable: true,
     onClick: () => setSel({ p, i }),
     onTap: () => setSel({ p, i }),
+    onContextMenu: (e: Konva.KonvaEventObject<MouseEvent>) => {
+      e.evt.preventDefault();
+      e.cancelBubble = true;
+      // a subpath start (moveTo) / close marker has no incoming segment to convert
+      if (nodeType === PATH_CMD.moveTo || nodeType === PATH_CMD.close) {
+        usePathNodeMenu.getState().hide();
+        return;
+      }
+      setSel({ p, i });
+      showNodeMenu({
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+        pathIndex: p,
+        nodeIndex: i,
+        isCurve: isCurve(nodeType),
+      });
+    },
     onDragStart: (e: Konva.KonvaEventObject<DragEvent>) => {
       setSel({ p, i });
       dragStart.current = { x: e.target.x(), y: e.target.y() };
@@ -389,7 +408,7 @@ export default function PathEditLayer() {
           if (n.node_type === PATH_CMD.close) return null;
           const isSel = sel?.p === p.pathIndex && sel?.i === i;
           const rad = isSel ? r * 1.35 : r;
-          const handlers = anchorHandlers(p.pathIndex, i);
+          const handlers = anchorHandlers(p.pathIndex, i, n.node_type);
           const style = {
             fill: isCurve(n.node_type) ? "#6464ff" : "#ffc800",
             stroke: isSel ? "#ff2dff" : "#1f2937",
