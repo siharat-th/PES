@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Stage } from "react-konva";
 import Konva from "konva";
 import GridLayer from "./GridLayer";
+import RulerLayer from "./RulerLayer";
 import ObjectsLayer from "./ObjectsLayer";
 import StitchLayer from "./StitchLayer";
 import PathEditLayer from "./PathEditLayer";
@@ -156,6 +157,8 @@ export default function EmbroideryStage() {
           )}
           {/* StitchEdit shows the stitches as editable thread lines (no texture) */}
           {viewMode === "stitchEdit" && <StitchEditLayer />}
+          {/* Rulers overlay everything, pinned in screen space */}
+          <RulerLayer mode={viewMode} />
         </Stage>
       </ViewContext.Provider>
       {/* HTML overlay (lives outside the Konva Stage) — path-node right-click menu */}
