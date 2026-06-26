@@ -111,6 +111,7 @@ json objectSnapshotJson(int index) {
     s["visible"] = p.visible;
     s["locked"] = p.locked;
     s["scalable"] = data->isScalable();
+    s["has_stitches"] = pescore::objectHasStitches(*data);
     s["object_type"] = pescore::objectTypeToString(p.type);
     s["text"] = std::string(p.text);
     s["group_id"] = p.groupId;
@@ -255,6 +256,12 @@ json dispatch(const std::string& cmd, const json& a) {
         // returns a STRING (the frontend JSON.parses it, matching Tauri)
         return pescore::parameterToJson(doc()->getDataParameter(idx)).dump();
     }
+    if (cmd == "get_object_vector") {
+        int idx = iarg("index");
+        if (!inRange(idx)) return std::string("{\"paths\":[]}");
+        // STRING result (frontend JSON.parses it, matching Tauri)
+        return pescore::objectVectorJson(*doc()->getDataObject(idx)).dump();
+    }
     if (cmd == "get_stitch_data") {
         int idx = a.contains("index") ? iarg("index", -1) : -1;
         pescore::StitchGeom g = pescore::buildStitchData(doc(), idx);
@@ -316,6 +323,14 @@ json dispatch(const std::string& cmd, const json& a) {
     if (cmd == "duplicate_object") {
         int idx = iarg("index");
         undoable([&] { doc()->duplicateObject(idx); });
+        return documentSnapshotJson();
+    }
+    if (cmd == "add_shape") {
+        int shapeIndex = iarg("shapeIndex");
+        undoable([&] {
+            pesData d = pescore::makeShapeObject(shapeIndex);
+            doc()->addObject(d);
+        });
         return documentSnapshotJson();
     }
     if (cmd == "duplicate_objects") {
@@ -424,10 +439,11 @@ json dispatch(const std::string& cmd, const json& a) {
             if (jv.is_boolean()) applied = setParamBool(idx, key, jv.get<bool>());
             else if (jv.is_string()) applied = setParamStr(idx, key, jv.get<std::string>());
             else if (jv.is_number()) applied = setParamNum(idx, key, jv.get<float>());
-            // NOTE: text-type objects need updatePPEFText/updateTTFText to
-            // regenerate paths/stitches after a param change. That logic lives
-            // in pes_ffi.cpp (not an engine method); it'll be lifted into the
-            // shared core in the text/font phase. For now non-text params apply.
+            // SVG objects re-color their paths + regenerate fill/stroke stitches
+            // (shared with the native facade). NOTE: PPEF/TTF text regeneration
+            // (updatePPEFText/updateTTFText) still lives in pes_ffi.cpp and will
+            // be lifted into the shared core in the text/font phase.
+            if (applied) pescore::updateSvgObject(*doc()->getDataObject(idx));
             return applied;
         });
         if (!ok) return errorJson("unknown parameter key: " + key);

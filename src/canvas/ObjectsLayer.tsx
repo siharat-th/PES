@@ -1,19 +1,73 @@
 import { useEffect, useRef, useState } from "react";
-import { Layer, Image as KonvaImage, Transformer } from "react-konva";
+import { Layer, Group, Path, Image as KonvaImage, Transformer } from "react-konva";
 import Konva from "konva";
 import { useDocumentStore } from "../state/documentStore";
-import { getObjectImageBitmap } from "../engine/EngineClient";
-import type { ObjectSnapshot } from "../engine/types";
+import { getObjectImageBitmap, getObjectVector } from "../engine/EngineClient";
+import type { ObjectSnapshot, ObjectVector, VectorPath } from "../engine/types";
+import { lookupGradient, type SvgGradient } from "../engine/svgGradients";
 import { useView, layerTransform } from "./viewContext";
 
 interface CachedImage {
   version: number;
   bitmap: ImageBitmap;
 }
+interface CachedVector {
+  version: number;
+  vector: ObjectVector;
+}
 
-/** Embroidery objects as cached bitmap images + selection transformer.
- *  Mirrors the old model: image rendered unrotated by the engine, rotation
- *  applied visually; gestures preview locally and commit on release.
+/** An object with no stitches yet (a freshly added shape / un-filled SVG) is
+ *  drawn as a crisp Konva vector — no raster, no stroke clipping, instant
+ *  recolor. Everything with real stitches stays a cached engine PNG. */
+const isVector = (o: ObjectSnapshot) => o.scalable && !o.has_stitches;
+
+/** "#rrggbb" + opacity → an rgba() string Konva understands. */
+function rgba(hex?: string, opacity = 1): string | undefined {
+  if (!hex) return undefined;
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
+/** Konva fill props for a vector path: a real linear/radial gradient if the
+ *  fill is a remembered SVG-gradient sentinel, else a solid fill. Gradient
+ *  coords map over the path bbox (objectBoundingBox; userSpaceOnUse approx). */
+function fillProps(p: VectorPath): Record<string, unknown> {
+  const grad: SvgGradient | undefined = lookupGradient(p.fill);
+  if (!grad) return { fill: rgba(p.fill, p.fillOpacity) };
+  const [bx, by, bw, bh] = p.bbox;
+  const stops = grad.stops.flatMap((s) => [s.offset, s.color]);
+  if (grad.type === "linear") {
+    const o = grad.objectBBox;
+    const x1 = o ? grad.x1 : 0;
+    const y1 = o ? grad.y1 : 0;
+    const x2 = o ? grad.x2 : 1;
+    const y2 = o ? grad.y2 : 1;
+    return {
+      fillPriority: "linear-gradient",
+      fillLinearGradientStartPoint: { x: bx + x1 * bw, y: by + y1 * bh },
+      fillLinearGradientEndPoint: { x: bx + x2 * bw, y: by + y2 * bh },
+      fillLinearGradientColorStops: stops,
+    };
+  }
+  const cx = grad.objectBBox ? grad.cx : 0.5;
+  const cy = grad.objectBBox ? grad.cy : 0.5;
+  const center = { x: bx + cx * bw, y: by + cy * bh };
+  return {
+    fillPriority: "radial-gradient",
+    fillRadialGradientStartPoint: center,
+    fillRadialGradientEndPoint: center,
+    fillRadialGradientStartRadius: 0,
+    fillRadialGradientEndRadius: grad.r * Math.max(bw, bh),
+    fillRadialGradientColorStops: stops,
+  };
+}
+
+/** Embroidery objects as cached bitmaps (stitched) or crisp vectors (shapes) +
+ *  selection transformer. Image/vector rendered unrotated by the engine,
+ *  rotation applied visually; gestures preview locally and commit on release.
  *  Multi-select: shift-click; dragging any selected node moves the group. */
 export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean }) {
   const view = useView();
@@ -25,30 +79,43 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
   const translateObjects = useDocumentStore((s) => s.translateObjects);
 
   const cacheRef = useRef<Map<number, CachedImage>>(new Map());
+  const vecRef = useRef<Map<number, CachedVector>>(new Map());
   const [renderTick, forceRender] = useState(0);
   const trRef = useRef<Konva.Transformer>(null);
-  const nodeRefs = useRef<Map<number, Konva.Image>>(new Map());
+  const nodeRefs = useRef<Map<number, Konva.Node>>(new Map());
   const dragIds = useRef<number[]>([]);
 
   const objects = doc?.objects ?? [];
 
-  // (Re)fetch object images when the document content changes.
+  // (Re)fetch each object's render resource when the document content changes:
+  // a vector (shape) or a bitmap (stitched), whichever applies now.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       for (const obj of objects) {
-        const cached = cacheRef.current.get(obj.index);
-        if (cached && cached.version === imageVersion) continue;
-        const bitmap = await getObjectImageBitmap(obj.index);
-        if (cancelled) return;
-        if (bitmap) {
-          cacheRef.current.set(obj.index, { version: imageVersion, bitmap });
+        if (isVector(obj)) {
+          const cached = vecRef.current.get(obj.index);
+          if (cached && cached.version === imageVersion) continue;
+          const vector = await getObjectVector(obj.index);
+          if (cancelled) return;
+          vecRef.current.set(obj.index, { version: imageVersion, vector });
           forceRender((n) => n + 1);
+        } else {
+          const cached = cacheRef.current.get(obj.index);
+          if (cached && cached.version === imageVersion) continue;
+          const bitmap = await getObjectImageBitmap(obj.index);
+          if (cancelled) return;
+          if (bitmap) {
+            cacheRef.current.set(obj.index, { version: imageVersion, bitmap });
+            forceRender((n) => n + 1);
+          }
         }
       }
-      for (const key of [...cacheRef.current.keys()]) {
+      // drop caches for objects that no longer exist
+      for (const key of [...cacheRef.current.keys()])
         if (!objects.some((o) => o.index === key)) cacheRef.current.delete(key);
-      }
+      for (const key of [...vecRef.current.keys()])
+        if (!objects.some((o) => o.index === key)) vecRef.current.delete(key);
     })();
     return () => {
       cancelled = true;
@@ -61,15 +128,15 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
     if (!tr) return;
     const nodes = selectedIndices
       .map((i) => nodeRefs.current.get(i))
-      .filter((n): n is Konva.Image => !!n);
+      .filter((n): n is Konva.Node => !!n);
     tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
-    // `renderTick` re-runs this as each object's bitmap loads and its Konva node
-    // mounts — without it, a freshly duplicated group attaches only the copies
-    // whose images happened to be ready, leaving the rest unselected.
+    // `renderTick` re-runs this as each object's resource loads and its Konva
+    // node mounts — without it, a freshly duplicated group attaches only the
+    // copies whose resources happened to be ready, leaving the rest unselected.
   }, [selectedIndices, objects, imageVersion, renderTick]);
 
-  const commitNode = (obj: ObjectSnapshot, node: Konva.Image) => {
+  const commitNode = (obj: ObjectSnapshot, node: Konva.Node) => {
     const cx0 = obj.x + obj.width / 2;
     const cy0 = obj.y + obj.height / 2;
     // non-scalable objects (e.g. imported "Stitch") never scale
@@ -93,15 +160,13 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
       : [obj.index];
   };
 
-  const handleDragEnd = (obj: ObjectSnapshot, node: Konva.Image) => {
+  const handleDragEnd = (obj: ObjectSnapshot, node: Konva.Node) => {
     // Group drag fires dragend on EVERY attached node — only the first one
     // commits the gesture; later ones must not re-translate (double-move bug).
     const ids = dragIds.current;
     dragIds.current = [];
     if (ids.length === 0) return;
     if (ids.length > 1) {
-      // read each node's real position vs its snapshot center — robust even
-      // if Konva moved peers (Transformer group drag) or anything desynced
       const moves = ids.flatMap((i) => {
         const o = objects.find((x) => x.index === i);
         const n = nodeRefs.current.get(i);
@@ -124,24 +189,66 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
   // group containing a non-scalable "Stitch" shows no scale handles.
   const selectionScalable =
     selectedIndices.length > 0 &&
-    selectedIndices.every(
-      (i) => objects.find((o) => o.index === i)?.scalable,
-    );
+    selectedIndices.every((i) => objects.find((o) => o.index === i)?.scalable);
+
+  const setNodeRef = (index: number) => (n: Konva.Node | null) => {
+    if (n) nodeRefs.current.set(index, n);
+    else nodeRefs.current.delete(index);
+  };
 
   return (
     <Layer {...layerTransform(view)}>
       {objects
         .filter((o) => o.visible)
         .map((obj) => {
+          const common = {
+            draggable: !obj.locked && !readOnly,
+            listening: !readOnly,
+            onClick: (e: Konva.KonvaEventObject<MouseEvent>) =>
+              select(obj.index, e.evt.shiftKey),
+            onTap: () => select(obj.index),
+            onDragStart: () => handleDragStart(obj),
+            onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
+              handleDragEnd(obj, e.target),
+            onTransformEnd: (e: Konva.KonvaEventObject<Event>) =>
+              commitNode(obj, e.currentTarget as Konva.Node),
+          };
+
+          if (isVector(obj)) {
+            const vec = vecRef.current.get(obj.index)?.vector;
+            if (!vec) return null;
+            const cx = obj.x + obj.width / 2;
+            const cy = obj.y + obj.height / 2;
+            return (
+              <Group
+                key={obj.index}
+                ref={setNodeRef(obj.index)}
+                x={cx}
+                y={cy}
+                offsetX={cx}
+                offsetY={cy}
+                rotation={obj.rotate_degree}
+                {...common}
+              >
+                {vec.paths.map((p, i) => (
+                  <Path
+                    key={i}
+                    data={p.d}
+                    {...fillProps(p)}
+                    stroke={rgba(p.stroke, p.strokeOpacity)}
+                    strokeWidth={p.strokeWidth}
+                  />
+                ))}
+              </Group>
+            );
+          }
+
           const img = cacheRef.current.get(obj.index)?.bitmap;
           if (!img) return null;
           return (
             <KonvaImage
               key={obj.index}
-              ref={(n) => {
-                if (n) nodeRefs.current.set(obj.index, n);
-                else nodeRefs.current.delete(obj.index);
-              }}
+              ref={setNodeRef(obj.index)}
               image={img}
               x={obj.x + obj.width / 2}
               y={obj.y + obj.height / 2}
@@ -152,13 +259,7 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
               rotation={obj.rotate_degree}
               scaleX={1}
               scaleY={1}
-              draggable={!obj.locked && !readOnly}
-              listening={!readOnly}
-              onClick={(e) => select(obj.index, e.evt.shiftKey)}
-              onTap={() => select(obj.index)}
-              onDragStart={() => handleDragStart(obj)}
-              onDragEnd={(e) => handleDragEnd(obj, e.target as Konva.Image)}
-              onTransformEnd={(e) => commitNode(obj, e.target as Konva.Image)}
+              {...common}
             />
           );
         })}

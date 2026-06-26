@@ -3401,9 +3401,16 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
                               -y - SkScalarHalf(bound.height));
             canvas->clear(SK_ColorTRANSPARENT);
 
-            // Draw SVG shape faintly as reference background behind stitches
+            // Draw the scalable object's vector paths. With no stitches yet
+            // (a freshly added shape / un-filled SVG) render them SOLID so the
+            // shape is fully visible; once stitches exist, draw the paths faintly
+            // (alpha 0x15) as a reference background behind the stitches.
             if (pesdata.parameter.visible && pesdata.isScalable() && !pesdata.paths.empty()) {
-                printf("[makeImageSnapshot] Drawing %d SVG paths at alpha=0x15\n", (int)pesdata.paths.size());
+                // With stitches present the paths are only a faint reference
+                // behind them (alpha 0x15); as a plain shape they're drawn with
+                // their OWN color alpha so a translucent fill stays translucent.
+                bool hasStitches =
+                    !pesdata.fillBlocks.empty() || !pesdata.strokeBlocks.empty();
                 SkPaint bgPaint;
                 bgPaint.setAntiAlias(true);
                 for (auto& path : pesdata.paths) {
@@ -3411,13 +3418,15 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
                     SkPath skpath = toSk(path);
                     if (path.isFill()) {
                         pesColor c = path.getFillColor();
-                        bgPaint.setColor(SkColorSetARGB(0x15, c.r, c.g, c.b));
+                        uint8_t a = hasStitches ? 0x15 : c.a;
+                        bgPaint.setColor(SkColorSetARGB(a, c.r, c.g, c.b));
                         bgPaint.setStyle(SkPaint::Style::kFill_Style);
                         canvas->drawPath(skpath, bgPaint);
                     }
                     if (path.isStroke()) {
                         pesColor c = path.getStrokeColor();
-                        bgPaint.setColor(SkColorSetARGB(0x15, c.r, c.g, c.b));
+                        uint8_t a = hasStitches ? 0x15 : c.a;
+                        bgPaint.setColor(SkColorSetARGB(a, c.r, c.g, c.b));
                         bgPaint.setStrokeWidth(abs(path.getStrokeWidth()));
                         bgPaint.setStyle(SkPaint::Style::kStroke_Style);
                         canvas->drawPath(skpath, bgPaint);

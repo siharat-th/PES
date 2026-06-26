@@ -19,6 +19,8 @@ mod ffi {
         visible: bool,
         locked: bool,
         scalable: bool,
+        /// has real stitches → render as a PNG; false → render as a crisp vector
+        has_stitches: bool,
         object_type: String,
         text: String,
         /// layer-group membership; 0 = ungrouped (see GroupSnapshot)
@@ -147,6 +149,9 @@ mod ffi {
         fn set_object_locked(index: i32, locked: bool);
         fn delete_object(index: i32) -> bool;
         fn duplicate_object(index: i32) -> bool;
+        fn add_shape(shape_index: i32) -> i32;
+        fn get_object_vector_json(index: i32) -> String;
+        fn update_svg(index: i32) -> bool;
         fn move_object_front(index: i32) -> bool;
         fn move_object_back(index: i32) -> bool;
         fn move_object_to(from: i32, to: i32) -> bool;
@@ -332,6 +337,18 @@ impl Engine<'_> {
 
     pub fn duplicate_object(&self, index: i32) -> bool {
         ffi::duplicate_object(index)
+    }
+
+    pub fn add_shape(&self, shape_index: i32) -> i32 {
+        ffi::add_shape(shape_index)
+    }
+
+    pub fn object_vector_json(&self, index: i32) -> String {
+        ffi::get_object_vector_json(index)
+    }
+
+    pub fn update_svg(&self, index: i32) -> bool {
+        ffi::update_svg(index)
     }
 
     pub fn move_object_front(&self, index: i32) -> bool {
@@ -1062,6 +1079,104 @@ mod tests {
             assert!(
                 groups.iter().all(|g| g.id != g_new),
                 "nextGroupId collided with a loaded group after reload"
+            );
+        });
+    }
+
+    #[test]
+    fn svg_import_yields_vector_with_solid_colors() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+            let bytes = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../samples/gradient-test.svg"
+            ))
+            .expect("missing samples/gradient-test.svg");
+            assert!(eng.import_svg(&bytes), "import_svg failed");
+            let idx = eng.object_count() - 1;
+            // imported SVG with no fill assigned → render as a crisp vector
+            assert!(!eng.object_snapshot(idx).has_stitches, "import should have no stitches");
+            let vec = eng.object_vector_json(idx);
+            // solid-colored shapes keep their color + stroke (rect/circle use a
+            // gradient which the engine parser does not resolve yet — KNOWN gap).
+            assert!(vec.contains("#3CB371"), "solid fill color lost on import: {vec}");
+            assert!(vec.contains("#1F5F3F"), "stroke color lost on import");
+            assert!(vec.matches("\"d\"").count() >= 3, "expected 3 imported paths");
+            // per-path bbox is emitted so the frontend can place SVG gradients
+            assert!(vec.contains("\"bbox\""), "vector JSON missing per-path bbox");
+        });
+    }
+
+    #[test]
+    fn add_shape_makes_scalable_editable_object() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+            assert_eq!(eng.object_count(), 0, "fresh document not empty");
+
+            // rect (shape index 2): drops a ~50x50mm scalable SVG path at center
+            let new_idx = eng.add_shape(2);
+            assert_eq!(eng.object_count(), 1, "add_shape did not append an object");
+            assert_eq!(new_idx, 0, "add_shape should return the new object's index");
+
+            let snap = eng.object_snapshot(new_idx);
+            // the whole point of the change: it must be a scalable, editable path
+            assert!(snap.scalable, "shape is not scalable (Transformer/scale won't work)");
+            assert_eq!(snap.object_type, "SVG", "shape should be a scalable SVG path");
+            // real geometry from the path (non-degenerate bbox)
+            assert!(
+                snap.width > 10.0 && snap.height > 10.0,
+                "rect shape has no geometry: {}x{} mm",
+                snap.width,
+                snap.height
+            );
+            // NO stitches yet — it's a plain vector shape, not embroidery
+            assert!(!snap.has_stitches, "fresh shape should report no stitches");
+            assert_eq!(
+                eng.stitch_data(new_idx).total_points,
+                0,
+                "shape should carry no stitches yet"
+            );
+            // ...and it exposes vector geometry for the frontend to draw crisp
+            let vec = eng.object_vector_json(new_idx);
+            assert!(
+                vec.contains("\"d\"") && vec.contains("\"paths\""),
+                "no vector geometry for the shape: {vec}"
+            );
+
+            // Properties: switch Fill type NONE→NORMAL then regenerate (the
+            // set_parameter flow). The shape must now carry real stitches and
+            // flip to has_stitches (so the UI switches vector → stitched PNG).
+            assert!(eng.set_param_num(new_idx, "fillType", 1.0), "set fillType failed");
+            assert!(eng.update_svg(new_idx), "update_svg should accept an SVG object");
+            assert!(
+                eng.stitch_data(new_idx).total_points > 0,
+                "NORMAL fill produced no stitches"
+            );
+            assert!(
+                eng.object_snapshot(new_idx).has_stitches,
+                "object should report has_stitches after a fill is applied"
+            );
+
+            // ellipse + line also create scalable, stitch-free objects
+            let n_ellipse = eng.add_shape(8);
+            let n_line = eng.add_shape(0);
+            assert_eq!(eng.object_count(), 3, "expected 3 shapes");
+            assert!(eng.object_snapshot(n_ellipse).scalable, "ellipse not scalable");
+            assert!(eng.object_snapshot(n_line).scalable, "line not scalable");
+            assert_eq!(eng.stitch_data(n_ellipse).total_points, 0, "ellipse has stitches");
+            assert!(bbox(eng, n_ellipse).0 > 10.0, "ellipse has no geometry");
+            assert!(bbox(eng, n_line).0 > 10.0, "line shape has no length");
+            // ellipse must actually RENDER (its path must reach SkPath, not just
+            // produce a bbox) — guards the arc-command-not-converted regression
+            assert!(
+                !eng.object_image_png(n_ellipse).is_empty(),
+                "ellipse did not render (path not converted to a drawable shape)"
+            );
+            assert!(
+                !eng.object_image_png(n_line).is_empty(),
+                "line did not render"
             );
         });
     }

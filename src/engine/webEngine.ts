@@ -16,6 +16,12 @@ type PesFactory = (opts: Record<string, unknown>) => Promise<PesModule>;
 
 let modPromise: Promise<PesModule> | null = null;
 
+// The engine wasm is rebuilt often during development (scripts/build-web.sh).
+// Browsers keep the previously fetched/compiled module, so a stale wasm answers
+// "unknown command" for newly added engine commands. In dev, bust the cache so
+// each page load fetches the freshly built module; prod keeps cacheable URLs.
+const CACHE_BUST = import.meta.env.DEV ? `?t=${Date.now()}` : "";
+
 /** Inject the emscripten glue as a classic <script>. It lives in public/wasm
  *  (served verbatim) and can't go through vite's module graph, so we load it by
  *  tag — which sets the global factory `createPesModule`. */
@@ -34,11 +40,13 @@ function loadScript(src: string): Promise<void> {
 export function loadPesModule(): Promise<PesModule> {
   if (!modPromise) {
     modPromise = (async () => {
-      await loadScript("/wasm/pes_web.js");
+      await loadScript("/wasm/pes_web.js" + CACHE_BUST);
       const factory = (globalThis as { createPesModule?: PesFactory })
         .createPesModule;
       if (!factory) throw new Error("createPesModule global missing");
-      const m = await factory({ locateFile: (p: string) => "/wasm/" + p });
+      const m = await factory({
+        locateFile: (p: string) => "/wasm/" + p + CACHE_BUST,
+      });
       m.set_resource_path("/resources"); // stitch textures preloaded into MEMFS
       return m;
     })();

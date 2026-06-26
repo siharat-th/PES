@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="480" height="320" viewBox="0 0 480 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1b3f"/>
+      <stop offset="0.45" stop-color="#7b2ff7"/>
+      <stop offset="0.72" stop-color="#f72f7b"/>
+      <stop offset="1" stop-color="#ff9e2c"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff7ad"/>
+      <stop offset="0.6" stop-color="#ffd36b"/>
+      <stop offset="1" stop-color="#ff8a3c"/>
+    </radialGradient>
+    <linearGradient id="mtnFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a1c71"/>
+      <stop offset="1" stop-color="#5b2a86"/>
+    </linearGradient>
+    <linearGradient id="mtnBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22143f"/>
+      <stop offset="1" stop-color="#3a1c71"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9e2c"/>
+      <stop offset="0.5" stop-color="#f72f7b"/>
+      <stop offset="1" stop-color="#3a1c71"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="480" height="210" fill="url(#sky)"/>
+  <circle cx="240" cy="152" r="56" fill="url(#sun)"/>
+  <polygon points="0,210 120,92 240,210" fill="url(#mtnBack)"/>
+  <polygon points="150,210 300,72 450,210" fill="url(#mtnBack)"/>
+  <polygon points="-20,210 95,132 225,210" fill="url(#mtnFront)"/>
+  <polygon points="205,210 340,118 500,210" fill="url(#mtnFront)"/>
+  <rect x="0" y="210" width="480" height="110" fill="url(#water)"/>
+</svg>

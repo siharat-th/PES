@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as engine from "../engine/EngineClient";
+import { preprocessSvgGradients } from "../engine/svgGradients";
 import type { DocumentSnapshot } from "../engine/types";
 
 interface DocumentState {
@@ -33,6 +34,8 @@ interface DocumentState {
   translateObjects: (moves: engine.ObjectMove[]) => Promise<void>;
   deleteSelected: () => Promise<void>;
   duplicateSelected: () => Promise<void>;
+  /** drop a ready-made parametric shape and select it */
+  addShape: (shapeIndex: number) => Promise<void>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
   setLocked: (index: number, locked: boolean) => Promise<void>;
   reorder: (index: number, dir: number) => Promise<void>;
@@ -107,7 +110,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     },
 
     openBytes: async (filename, bytes) => {
-      await run(true, () => engine.openDocumentBytes(filename, bytes));
+      let data = bytes;
+      // resolve SVG gradients in the browser (engine can't) → sentinel fills
+      // that ObjectsLayer paints as real Konva gradients.
+      if (filename.toLowerCase().endsWith(".svg")) {
+        const svg = preprocessSvgGradients(new TextDecoder().decode(bytes));
+        data = new TextEncoder().encode(svg);
+      }
+      await run(true, () => engine.openDocumentBytes(filename, data));
       const ext = filename.split(".").pop()?.toLowerCase();
       if (!get().error && (ext === "ppes" || ext === "ppes5")) {
         set({ projectPath: filename });
@@ -186,6 +196,25 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           selectedIndex: res.new_indices.length
             ? res.new_indices[res.new_indices.length - 1]
             : -1,
+        }));
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    addShape: async (shapeIndex) => {
+      set({ busy: true, error: null });
+      try {
+        const doc = await engine.addShape(shapeIndex);
+        // the new object is appended last → select it
+        const last = doc.objects.length - 1;
+        set((s) => ({
+          doc,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: last >= 0 ? [last] : [],
+          selectedIndex: last,
         }));
       } catch (e) {
         set({ error: String(e) });

@@ -39,6 +39,8 @@ pub fn run() {
             commands::delete_object,
             commands::duplicate_object,
             commands::duplicate_objects,
+            commands::add_shape,
+            commands::get_object_vector,
             commands::set_object_visible,
             commands::set_object_locked,
             commands::reorder_object,

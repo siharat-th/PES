@@ -16,6 +16,10 @@
 #include "pesData.hpp"
 #include "pesDocument.hpp"
 #include "pesStitchBlock.hpp"
+#include "pesPathUtility.hpp" // toSk(pesPath) -> SkPath
+
+#include "include/utils/SkParsePath.h" // SkParsePath::ToSVGString
+#include "include/core/SkString.h"
 
 namespace pescore {
 
@@ -91,6 +95,136 @@ inline nlohmann::json parameterToJson(const pesData::Parameter& p) {
         {"strokeDensity", p.strokeDensity},
         {"strokeRunningInset", p.strokeRunningInset},
     };
+}
+
+// Build a ready-made scalable shape as an SVG-path object centered at the origin
+// (= hoop center). These are plain editable vector paths: they scale with the
+// Transformer and open in PathEdit/StitchEdit. They carry NO stitches yet
+// (fill/stroke types NONE) — the canvas renders the path as a flat shape and the
+// user converts it to stitches later. Shared by the native facade and the web
+// binding so both targets create byte-identical objects.
+// shape_index: 0=line, 1=triangle, 2=rect, 8=ellipse.
+inline pesData makeShapeObject(int shape_index) {
+    pesData d;
+    auto& param = d.parameter;
+    param.type = pesData::OBJECT_TYPE_SCALABLE_SVG_FILE;
+    param.useColorFromPicker = false;
+    param.text = "Shape";
+    param.fillType = pesData::FILL_TYPE_NONE;   // no stitches yet
+    param.strokeType = pesData::STROKE_TYPE_NONE;
+
+    const float w = 500.f, h = 500.f; // ~50 mm (engine units = 0.1mm)
+    // A translucent fill + a solid outline so it reads as a vector shape.
+    const pesColor fillColor(79, 157, 222, 0x59);  // #4F9DDE @ ~35%
+    const pesColor strokeColor(31, 86, 138, 0xFF); // #1F568A solid
+    const float strokeW = 12.f;                    // ~1.2 mm
+    const bool isLine = (shape_index == 0);
+
+    pesPath path;
+    if (shape_index == 0) { // line
+        path.moveTo(-w * 0.5f, 0.f);
+        path.lineTo(w * 0.5f, 0.f);
+    } else if (shape_index == 1) { // triangle
+        path.moveTo(0.f, -h * 0.5f);
+        path.lineTo(w * 0.5f, h * 0.5f);
+        path.lineTo(-w * 0.5f, h * 0.5f);
+        path.close();
+    } else if (shape_index == 8) { // ellipse — 4 cubic béziers (toSk converts
+        // these; pesPath::arc emits an _arc command that toSk does NOT render)
+        const float rx = w * 0.5f, ry = h * 0.5f;
+        const float k = 0.5522847498f; // circle bézier constant (4/3·tan(π/8))
+        path.moveTo(rx, 0.f);
+        path.bezierTo(pesVec2f(rx, -ry * k), pesVec2f(rx * k, -ry), pesVec2f(0.f, -ry));
+        path.bezierTo(pesVec2f(-rx * k, -ry), pesVec2f(-rx, -ry * k), pesVec2f(-rx, 0.f));
+        path.bezierTo(pesVec2f(-rx, ry * k), pesVec2f(-rx * k, ry), pesVec2f(0.f, ry));
+        path.bezierTo(pesVec2f(rx * k, ry), pesVec2f(rx, ry * k), pesVec2f(rx, 0.f));
+        path.close();
+    } else { // rect (2)
+        path.rectangle(-w * 0.5f, -h * 0.5f, w, h);
+    }
+
+    if (isLine) {
+        path.setFilled(false);
+        path.setStrokeColor(strokeColor);
+        path.setStrokeWidth(strokeW);
+    } else {
+        path.setFilled(true);
+        path.setFillColor(fillColor);
+        path.setStrokeColor(strokeColor); // visible outline
+        path.setStrokeWidth(strokeW);
+    }
+    param.colorIndex = 20; // black (used once converted to stitches)
+
+    d.paths.push_back(path);
+    d.recalculate(); // compute bbox from the path (no stitch generation)
+    return d;
+}
+
+// True if the object carries any actual stitches (non-empty stitch blocks).
+// Drives the "render as crisp vector vs. as a stitched PNG" decision: an SVG
+// shape with no fill/stroke assigned yet has none.
+inline bool objectHasStitches(pesData& d) {
+    for (auto& b : d.fillBlocks)
+        if (b.size() > 0) return true;
+    for (auto& b : d.strokeBlocks)
+        if (b.size() > 0) return true;
+    return false;
+}
+
+// Vector geometry for the frontend to draw scalable shapes as crisp Konva paths
+// (no raster, no stroke clipping). Each path → an SVG `d` string in ABSOLUTE
+// world coords (engine units) plus fill/stroke paint. Shared so desktop/web emit
+// identical geometry.
+inline nlohmann::json objectVectorJson(pesData& d) {
+    nlohmann::json paths = nlohmann::json::array();
+    for (auto& p : d.paths) {
+        if (!p.bVisible) continue;
+        SkPath sk = toSk(p);
+        nlohmann::json jp;
+        jp["d"] = std::string(SkParsePath::ToSVGString(sk).c_str());
+        // path bbox in world coords — lets the frontend place an SVG gradient
+        // (objectBoundingBox units) over the shape.
+        SkRect r = sk.getBounds();
+        jp["bbox"] = {r.x(), r.y(), r.width(), r.height()};
+        jp["fillRule"] = (p.fillRule == 1) ? "evenodd" : "nonzero";
+        if (p.isFill()) {
+            pesColor c = p.getFillColor();
+            jp["fill"] = colorToHex(c);
+            jp["fillOpacity"] = c.a / 255.0;
+        }
+        if (p.isStroke()) {
+            pesColor c = p.getStrokeColor();
+            jp["stroke"] = colorToHex(c);
+            jp["strokeOpacity"] = c.a / 255.0;
+            jp["strokeWidth"] = p.getStrokeWidth();
+        }
+        paths.push_back(jp);
+    }
+    return nlohmann::json{{"paths", paths}};
+}
+
+// Apply a parameter change to a scalable SVG object: push the palette fill/stroke
+// colors down onto its paths (the fill keeps its design alpha) and regenerate
+// fill/stroke stitches per the current fill/stroke types (NONE → stays a plain
+// vector shape; NORMAL/etc. → real stitches). This is the SVG counterpart of
+// update_ppef_text / update_ttf_text. Returns false for non-SVG objects.
+inline bool updateSvgObject(pesData& d) {
+    auto& param = d.parameter;
+    if (param.type != pesData::OBJECT_TYPE_SCALABLE_SVG_FILE) return false;
+    pesColor fillC = pesGetBrotherColor(param.fillColorIndex);
+    pesColor strokeC = pesGetBrotherColor(param.colorIndex);
+    for (auto& p : d.paths) {
+        if (p.isFill()) {
+            pesColor c = fillC;
+            c.a = p.getFillColor().a; // preserve the shape's translucency
+            p.setFillColor(c);
+        }
+        if (p.isStroke()) p.setStrokeColor(strokeC);
+    }
+    d.applyFill();   // honors param.fillType (NONE → no fill stitches)
+    d.applyStroke(); // honors param.strokeType (NONE → no stroke stitches)
+    d.recalculate();
+    return true;
 }
 
 // Ordered stitch geometry. `coords` is x,y pairs (engine units, 0.1mm); each

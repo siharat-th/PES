@@ -11,10 +11,30 @@ export interface ObjectSnapshot {
   visible: boolean;
   locked: boolean;
   scalable: boolean;
+  /** has real stitches → render as a PNG; false → render as a crisp vector */
+  has_stitches: boolean;
   object_type: string;
   text: string;
   /** layer-group membership; 0 = ungrouped (see GroupSnapshot) */
   group_id: number;
+}
+
+/** One drawable path of a scalable object, as a Konva-ready SVG `d` + paint
+ *  (absolute world coords, engine units). See engine `objectVectorJson`. */
+export interface VectorPath {
+  d: string;
+  /** path bounding box in world coords [x, y, w, h] (for gradient placement) */
+  bbox: [number, number, number, number];
+  fillRule: "evenodd" | "nonzero";
+  fill?: string;
+  fillOpacity?: number;
+  stroke?: string;
+  strokeOpacity?: number;
+  strokeWidth?: number;
+}
+
+export interface ObjectVector {
+  paths: VectorPath[];
 }
 
 /** A layer group (folder-like; organizational metadata, not an object). */

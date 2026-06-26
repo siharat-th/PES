@@ -150,6 +150,7 @@ ObjectSnapshot get_object_snapshot(int32_t index) {
     s.visible = param.visible;
     s.locked = param.locked;
     s.scalable = data->isScalable();
+    s.has_stitches = pescore::objectHasStitches(*data);
     s.object_type = objectTypeToString(param.type);
     s.text = std::string(param.text);
     s.group_id = param.groupId;
@@ -208,6 +209,30 @@ bool delete_object(int32_t index) {
 
 bool duplicate_object(int32_t index) {
     return doc()->duplicateObject(index);
+}
+
+// Drop a ready-made scalable SVG-path shape at the hoop center (see
+// pescore::makeShapeObject — shared with the web binding). shape_index:
+// 0=line, 1=triangle, 2=rect, 8=ellipse. Returns the new object's index.
+int32_t add_shape(int32_t shape_index) {
+    pesData d = pescore::makeShapeObject(shape_index);
+    doc()->addObject(d);
+    return doc()->getObjectCount() - 1;
+}
+
+// Vector geometry (SVG paths + paint) for crisp Konva rendering of shapes.
+rust::String get_object_vector_json(int32_t index) {
+    if (index < 0 || index >= doc()->getObjectCount())
+        return rust::String("{\"paths\":[]}");
+    return rust::String(pescore::objectVectorJson(*doc()->getDataObject(index)).dump());
+}
+
+// Re-apply an SVG object's parameters to its paths + regenerate stitches (the
+// SVG counterpart of update_ppef_text). No-op for non-SVG objects.
+bool update_svg(int32_t index) {
+    if (index < 0 || index >= doc()->getObjectCount())
+        return false;
+    return pescore::updateSvgObject(*doc()->getDataObject(index));
 }
 
 bool move_object_front(int32_t index) {

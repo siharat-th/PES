@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="300" height="300" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="lin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f9dde"/>
+      <stop offset="100%" stop-color="#e0408a"/>
+    </linearGradient>
+    <radialGradient id="rad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe14d"/>
+      <stop offset="100%" stop-color="#e02b2b"/>
+    </radialGradient>
+  </defs>
+
+  <!-- linear-gradient filled rounded rect -->
+  <rect x="20" y="20" width="120" height="120" rx="16" fill="url(#lin)"/>
+
+  <!-- radial-gradient filled circle -->
+  <circle cx="220" cy="80" r="60" fill="url(#rad)"/>
+
+  <!-- solid green triangle (reference) -->
+  <polygon points="150,170 270,280 30,280" fill="#3cb371" stroke="#1f5f3f" stroke-width="6"/>
+</svg>

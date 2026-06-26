@@ -4,6 +4,7 @@ import type {
   BrotherColor,
   ColorBlockInfo,
   DocumentSnapshot,
+  ObjectVector,
   PathInfo,
   PathNode,
   StitchEditBlock,
@@ -75,6 +76,27 @@ export async function duplicateObject(
   index: number,
 ): Promise<DocumentSnapshot> {
   return invoke("duplicate_object", { index });
+}
+
+/** Brother shape indices accepted by add_shape (see SHAPE_* in the engine). */
+export const SHAPE = {
+  line: 0,
+  triangle: 1,
+  rect: 2,
+  ellipse: 8,
+} as const;
+
+/** Drop a ready-made parametric shape at the hoop center; returns the fresh
+ *  snapshot (the new object is the last one). */
+export async function addShape(shapeIndex: number): Promise<DocumentSnapshot> {
+  return invoke("add_shape", { shapeIndex });
+}
+
+/** Vector geometry (SVG paths + paint) for crisp Konva rendering of a scalable
+ *  shape that has no stitches yet. */
+export async function getObjectVector(index: number): Promise<ObjectVector> {
+  const json = await invoke<string>("get_object_vector", { index });
+  return JSON.parse(json);
 }
 
 export interface DuplicateResult {

@@ -225,6 +225,17 @@ pub async fn duplicate_object(index: i32) -> Result<DocumentSnapshot, String> {
     .await
 }
 
+/// Drop a ready-made parametric shape at the hoop center (0=line, 1=triangle,
+/// 2=rect, 8=ellipse). The new object is appended last; the UI selects it.
+#[tauri::command]
+pub async fn add_shape(shape_index: i32) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        history::run_undoable(|eng| eng.add_shape(shape_index));
+        document_snapshot()
+    })
+    .await
+}
+
 #[derive(Serialize)]
 pub struct DuplicateResult {
     pub snapshot: DocumentSnapshot,
@@ -423,6 +434,12 @@ pub async fn get_parameter(index: i32) -> Result<String, String> {
     run_blocking(move || with_engine(|eng| eng.parameter_json(index))).await
 }
 
+/// Vector geometry (SVG paths + paint) for crisp Konva rendering of shapes.
+#[tauri::command]
+pub async fn get_object_vector(index: i32) -> Result<String, String> {
+    run_blocking(move || with_engine(|eng| eng.object_vector_json(index))).await
+}
+
 #[derive(serde::Deserialize)]
 #[serde(untagged)]
 pub enum ParamValue {
@@ -445,9 +462,11 @@ pub async fn set_parameter(
                 ParamValue::Str(s) => eng.set_param_str(index, &key, s),
             };
             if ok {
-                // text-type objects regenerate from parameters (no-op otherwise)
-                if !eng.update_ppef_text(index) {
-                    eng.update_ttf_text(index);
+                // type-specific regeneration from parameters (each no-ops for
+                // the wrong type): PPEF/TTF text re-shape, SVG re-colors paths
+                // and regenerates fill/stroke stitches.
+                if !eng.update_ppef_text(index) && !eng.update_ttf_text(index) {
+                    eng.update_svg(index);
                 }
             }
             ok
