@@ -213,6 +213,60 @@ inline bool makePpefTextObject(pesData& out, const std::string& text,
     return true;
 }
 
+// Legacy "PES2" (Pinn Embroidery System, the pre-PPEF product generation)
+// text objects ship in some AutoSewing PPES templates as an empty
+// placeholder: font/size/baseline/color parameters set, but ZERO digitized
+// stitches (a "customer name" slot the template author never filled in
+// before export) — reproducible everywhere by the tiny degenerate 0.2mm
+// bounding box getBoundingBox() falls back to for zero-stitch objects.
+// The reference app (PES5_ReplaceWithDefaultFont, PES5Command.cpp:866, called
+// from the PPES-library import flow — DlgPPESHandler.js — right after
+// ImportDataAs) silently upgrades every OBJECT_TYPE_PES2_TEXT to a real,
+// editable OBJECT_TYPE_SCALABLE_PPEF_TEXT the moment a .ppes loads, so the
+// user only ever sees live text. Port that migration here.
+//
+// centerx/centery must be captured BEFORE rebuildPpefText() — it calls
+// getBoundingBox(), which unconditionally recomputes and overwrites both
+// fields with the (degenerate, near-origin) empty-object center. Using that
+// stale post-rebuild center to reposition — what the reference app's own
+// oldCenter-capture effectively does for a truly empty object — snaps the
+// migrated text to the hoop origin instead of the template author's intended
+// spot; reading the raw parsed centerx/centery first avoids that.
+// The migration always digitizes with "Thai001" (matching the reference
+// app's unconditional override) — callers that need to fetch a missing font
+// on demand (the web target's MEMFS model) check this BEFORE mutating
+// anything, so a failed attempt can be retried cleanly after the fetch.
+inline bool pes2TextMigrationNeedsFont(pesDocument* doc) {
+    const int n = doc->getObjectCount();
+    for (int i = 0; i < n; i++) {
+        auto data = doc->getDataObject(i);
+        if (data && data->parameter.type == pesData::OBJECT_TYPE_PES2_TEXT)
+            return !ppefFontAvailable("Thai001");
+    }
+    return false;
+}
+
+inline void migratePes2TextObjects(pesDocument* doc) {
+    const int n = doc->getObjectCount();
+    for (int i = 0; i < n; i++) {
+        auto data = doc->getDataObject(i);
+        if (!data || data->parameter.type != pesData::OBJECT_TYPE_PES2_TEXT)
+            continue;
+        const pesVec2f templateCenter((float)data->centerx, (float)data->centery);
+        auto& param = data->parameter;
+        param.fontName = "Thai001";
+        param.setType(pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT);
+        param.fillType = pesData::FILL_TYPE_SATIN_COLUMN;
+        param.strokeType = pesData::STROKE_TYPE_NONE;
+        param.lastFontSize = param.fontSize;
+        param.ppefScaleX = param.ppefScaleY = 1.0f;
+        if (rebuildPpefText(*data)) {
+            const pesVec2f actual = data->getBoundingBox().getCenter();
+            data->translate(templateCenter.x - actual.x, templateCenter.y - actual.y);
+        }
+    }
+}
+
 // ---- TTF text (SkTypeface outline) -----------------------------------------
 
 inline std::string ttfFontPath(const std::string& fontName) {

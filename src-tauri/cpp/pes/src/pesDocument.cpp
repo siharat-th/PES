@@ -4104,7 +4104,12 @@ void pesDocument::drawPesObject(SkCanvas* canvas, int idx, float scale) const {
     }
 }
 
-bool __showJumpStitch = true;
+// Default hidden: jump/trim segments are thread-path artifacts, not embroidered
+// stitches — getThumbnailPNGBuffer's drawStitches already hardcodes this same
+// hideJump=true; the per-object preview (makeImageSnapshot/drawPesObject, used
+// by the canvas + layer thumbnails) previously defaulted to showing them,
+// producing distracting stray lines between disconnected design pieces.
+bool __showJumpStitch = false;
 void pesDocument::setShowJumpStitch(bool show){
     __showJumpStitch = show;
 }

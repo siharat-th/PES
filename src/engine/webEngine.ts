@@ -155,13 +155,31 @@ export async function webInvoke<T = unknown>(
   }
 }
 
-/** Web file-open: load raw bytes of a picked file into the engine. */
+/** Web file-open: load raw bytes of a picked file into the engine.
+ *  A .ppes may contain legacy PES2_TEXT placeholders the engine migrates to
+ *  live PPEF text on load (see pescore::migratePes2TextObjects); that needs
+ *  "Thai001.ppef", which — like all fonts — isn't preloaded into MEMFS. On a
+ *  miss the engine re-parses from scratch next call, so retrying re-sends the
+ *  same original bytes (same font-miss loop shape as webInvoke's default case). */
 export async function webLoadInput(
   kind: "ppes" | "pes" | "svg",
   bytes: Uint8Array,
 ): Promise<DocumentSnapshot> {
   const m = await loadPesModule();
-  return parse<DocumentSnapshot>(m.load_input(kind, bytes));
+  let v = JSON.parse(m.load_input(kind, bytes)) as unknown;
+  for (let round = 0; round < 3; round++) {
+    const miss =
+      v && typeof v === "object" && "missing_font" in v
+        ? (v as { missing_font: string; font_kind?: string })
+        : null;
+    if (!miss) break;
+    await loadFont(m, miss.font_kind === "ttf" ? "ttf" : "ppef", miss.missing_font);
+    v = JSON.parse(m.load_input(kind, bytes)) as unknown;
+  }
+  if (v && typeof v === "object" && "__error" in v) {
+    throw new Error((v as { __error: string }).__error);
+  }
+  return v as DocumentSnapshot;
 }
 
 /** Web file-save: get exported bytes for a format (PES/PPES/...). */

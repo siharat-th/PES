@@ -69,6 +69,13 @@ function engine() {
     // node resolves .wasm/.data relative to CWD unless told otherwise
     enginePromise = createPesModule({ locateFile: (p) => path.join(workDir, p) }).then((m) => {
       m.set_resource_path("/resources"); // stitch textures preloaded in pes_web.data
+      // Some PPES templates carry legacy PES2_TEXT placeholders the engine
+      // migrates to live PPEF text on load (pescore::migratePes2TextObjects)
+      // — always digitized with "Thai001". Fonts aren't preloaded into MEMFS
+      // (same as the browser), so load_input would answer {"missing_font":...}
+      // on every such file; preloading once here avoids a retry per bake.
+      const fontPath = path.resolve(__dirname, "..", "src-tauri", "resources", "PPEF", "Thai001.ppef");
+      m.load_ppef_font("Thai001", fs.readFileSync(fontPath));
       return m;
     });
   }

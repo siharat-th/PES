@@ -94,7 +94,10 @@ float get_hoop_height_mm() {
 
 bool load_ppes(rust::Slice<const uint8_t> data) {
     pesBuffer buf = toPesBuffer(data);
-    return doc()->loadPPESFromBuffer(buf);
+    if (!doc()->loadPPESFromBuffer(buf))
+        return false;
+    pescore::migratePes2TextObjects(doc());
+    return true;
 }
 
 bool import_pes(rust::Slice<const uint8_t> data) {

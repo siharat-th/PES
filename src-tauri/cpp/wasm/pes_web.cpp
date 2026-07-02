@@ -740,6 +740,9 @@ static std::string web_load_input(std::string kind, val bytes) {
     if (kind == "ppes") {
         doc()->newDocument();
         ok = doc()->loadPPESFromBuffer(buf);
+        if (ok && pescore::pes2TextMigrationNeedsFont(doc()))
+            return missingFontJson("Thai001").dump(); // webEngine.ts fetches + retries load_input
+        if (ok) pescore::migratePes2TextObjects(doc());
         clearHistory();
     } else {
         std::string before = snapshotPPES();
