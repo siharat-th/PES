@@ -39,6 +39,20 @@ inline std::string objectTypeToString(int type) {
     }
 }
 
+// Per-object preview PNG source, shared by get_object_image_png (native) and
+// object_png (web). makePesImageSnapshot() only draws scalable paths + stitch
+// blocks — a Background object (embedded material-photo texture, no paths, no
+// stitches) renders fully transparent through it. The document-level
+// composite renderer (pesDocument.cpp's fndrawpes) already special-cases this
+// via makePesBackgroundImageSnapshot(); the per-object getters need the same
+// dispatch so a Background layer's thumbnail/canvas image isn't blank.
+inline sk_sp<SkImage> makeObjectPreviewImage(pesDocument* doc, int index) {
+    if (index < 0 || index >= doc->getObjectCount()) return nullptr;
+    if (doc->getDataParameter(index).type == pesData::OBJECT_TYPE_BACKGROUND)
+        return doc->makePesBackgroundImageSnapshot(index);
+    return doc->makePesImageSnapshot(index);
+}
+
 inline std::string colorToHex(const pesColor& c) {
     char sz[8];
     std::snprintf(sz, sizeof sz, "#%02X%02X%02X", c.r, c.g, c.b);

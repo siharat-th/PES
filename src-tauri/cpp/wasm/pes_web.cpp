@@ -12,6 +12,7 @@
 //   load_input(kind, Uint8Array)          -> resultJson    ("ppes"|"pes"|"svg")
 //   object_png(index)                     -> Uint8Array
 //   export_bytes(format)                  -> Uint8Array
+//   thumbnail_png(wmax, hmax)             -> Uint8Array   (content-cropped doc thumb)
 //
 // Commands map 1:1 to the Tauri command names; args use the SAME camelCase keys
 // the frontend already sends (see EngineClient.ts). DocumentSnapshot-returning
@@ -753,7 +754,7 @@ static std::string web_load_input(std::string kind, val bytes) {
 
 static val web_object_png(int index) {
     if (!inRange(index)) return bytesToVal(nullptr, 0);
-    sk_sp<SkImage> img = doc()->makePesImageSnapshot(index);
+    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index);
     if (!img) return bytesToVal(nullptr, 0);
     sk_sp<SkData> png = SkImageToPngData(img);
     if (!png) return bytesToVal(nullptr, 0);
@@ -762,6 +763,13 @@ static val web_object_png(int index) {
 
 static val web_export_bytes(std::string format) {
     return pesBufferToVal(doc()->exportBufferAs(format));
+}
+
+// Content-cropped thumbnail of the whole document — same renderer the old
+// app's shadowdoc.getThumbnailPNG used (max 400x400). Drives the library
+// thumbnail bake (scripts/build-library.cjs) and stays available for runtime.
+static val web_thumbnail_png(int wmax, int hmax) {
+    return pesBufferToVal(doc()->getThumbnailPNGBuffer(wmax, hmax));
 }
 
 // Write a fetched font into MEMFS — the on-demand counterpart of the preloaded
@@ -793,6 +801,7 @@ EMSCRIPTEN_BINDINGS(pes_web) {
     emscripten::function("load_input", &web_load_input);
     emscripten::function("object_png", &web_object_png);
     emscripten::function("export_bytes", &web_export_bytes);
+    emscripten::function("thumbnail_png", &web_thumbnail_png);
     emscripten::function("load_ppef_font", &web_load_ppef_font);
     emscripten::function("load_ttf_font", &web_load_ttf_font);
 }

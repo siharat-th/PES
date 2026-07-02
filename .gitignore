@@ -33,3 +33,6 @@ CLAUDE.md
 /build/
 /public/wasm/
 /public/resources/
+# design library payload (scripts/build-library.sh — manifests + design files
+# + baked thumbs from the legacy asset trees; prod serves it from the CDN)
+/public/library/

@@ -135,6 +135,7 @@ export default function RadialToolMenu() {
   const requestFit = useViewportStore((s) => s.requestFit);
   const viewMode = useUiStore((s) => s.viewMode);
   const setViewMode = useUiStore((s) => s.setViewMode);
+  const setLibraryOpen = useUiStore((s) => s.setLibraryOpen);
 
   const hasSelection = selectedIndex >= 0;
 
@@ -160,13 +161,6 @@ export default function RadialToolMenu() {
     fn();
     close();
   };
-
-  const soon = (id: string, label: string, icon: React.ReactNode): Item => ({
-    id,
-    label,
-    icon,
-    soon: true,
-  });
 
   const categories: Category[] = [
     {
@@ -304,9 +298,24 @@ export default function RadialToolMenu() {
       label: "คลัง",
       icon: <FolderOpen size={20} />,
       tools: [
-        soon("ppefLib", "คลังลายปัก (PPEF)", <LibraryBig size={18} />),
-        soon("pesLib", "คลัง PES", <Shapes size={18} />),
-        soon("svgLib", "คลัง SVG", <PenTool size={18} />),
+        {
+          id: "ppesLib",
+          label: "คลังแม่แบบ (PPES)",
+          icon: <LibraryBig size={18} />,
+          onClick: run(() => setLibraryOpen("ppes")),
+        },
+        {
+          id: "pesLib",
+          label: "คลัง PES",
+          icon: <Shapes size={18} />,
+          onClick: run(() => setLibraryOpen("pes")),
+        },
+        {
+          id: "svgLib",
+          label: "คลัง SVG",
+          icon: <PenTool size={18} />,
+          onClick: run(() => setLibraryOpen("svg")),
+        },
       ],
     },
   ];

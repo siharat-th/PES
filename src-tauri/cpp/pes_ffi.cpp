@@ -145,9 +145,7 @@ ObjectSnapshot get_object_snapshot(int32_t index) {
 }
 
 rust::Vec<uint8_t> get_object_image_png(int32_t index) {
-    if (index < 0 || index >= doc()->getObjectCount())
-        return {};
-    sk_sp<SkImage> img = doc()->makePesImageSnapshot(index);
+    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index);
     if (!img)
         return {};
     return toRustVec(SkImageToPngData(img));

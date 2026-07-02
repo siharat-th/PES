@@ -24,6 +24,7 @@ import EmbroideryStage from "./canvas/EmbroideryStage";
 import Sidebar from "./panels/Sidebar";
 import SimulatorBar from "./panels/SimulatorBar";
 import RadialToolMenu from "./panels/RadialToolMenu";
+import LibraryPanel from "./panels/LibraryPanel";
 import { useDocumentStore } from "./state/documentStore";
 import { useViewportStore } from "./state/viewportStore";
 import { useUiStore } from "./state/uiStore";
@@ -440,6 +441,8 @@ export default function App() {
         )}
         <span className="ml-auto">zoom {(zoom * 100).toFixed(0)}%</span>
       </div>
+
+      <LibraryPanel />
     </div>
   );
 }

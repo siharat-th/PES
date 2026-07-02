@@ -84,14 +84,22 @@ Tauri 2 (macOS + Windows)
 - Test: `smart_satin_seams_roundtrip` (rails→object มี stitch + recenter, TTF→source polygons, bowtie simplify) + node e2e smoke รัน pipeline เต็ม ("ภิญ" → 3 polygons → 10 คู่ราง → Satin Column มี stitch, bbox ตรงต้นฉบับ) + render PNG ยืนยันด้วยตา ("ภิญญ์จักรปัก" เป็นลายปักซาตินสวยตรงกับ vector)
 - **บทเรียน**: (1) `type:module` ใน package.json ทำให้ require() UMD/emscripten glue ใน repo กลายเป็น ESM — smoke ต้อง copy ออกไปนอก repo; (2) shim `window`/`self` ก่อนโหลด pes_web.js ทำให้ emscripten detect เป็น web แล้วพังใน node — ต้องโหลด engine ก่อนค่อย shim; (3) จุดตัด vendor สำคัญ: CanvasKit ทั้ง 17 จุดกระจุกท้ายไฟล์ (บรรทัด 7744+) geometry ล้วนสะอาด
 
+### ✅ Slice 8 — คลัง SVG/PES/PPES (design library) (เสร็จ 2026-07-03)
+- **`scripts/build-library.sh` + `build-library.cjs`**: เดินต้นไม้ asset เดิม 3 ชุด (`../Victor-frontend/PES5/res/{_svg_pro,_pes,_pes4_tpl_ppes}`, reference-only) → `public/library/{svg,pes,ppes}/manifest.json` (tree format เดิมของ `PES5_Data/*.json`) + copy ไฟล์จริง + bake thumbnail PNG ต่อไฟล์ผ่าน wasm engine จริง (`thumbnail_png` binding ใหม่ = `getThumbnailPNGBuffer`, renderer เดียวกับ `shadowdoc.getThumbnailPNG` เดิม) — resumable, ข้าม thumb ที่มีอยู่แล้ว, log ไฟล์ที่ bake ไม่ผ่านแยก ไม่ทำให้ทั้ง run ตาย. Full bake ครบ SVG 3,285 + PES 5,468 + PPES 546 ไฟล์ ไม่ fail เลย. `public/library/` gitignored (local dev เท่านั้น, ต้องรันสคริปต์เองก่อนใช้) — production ยังไม่ผูก CDN จริง (รอ bucket/URL)
+- **`LibraryPanel.tsx`**: modal 3 tab (SVG/PES/PPES), breadcrumb+browse ตาม manifest tree, search flat-index, thumbnail grid lazy-load, แทรกผ่าน `openBytes` เดิม (SVG/PES → addObject undoable, PPES → แทนทั้งเอกสาร + confirm dialog กันงานหาย). Wire เข้ากับ 3 ปุ่ม stub เดิมในหมวด "คลัง" ของ `RadialToolMenu.tsx` (`soon: true` ถูกลบออก)
+- **บั๊กที่เจอระหว่างทดสอบจริง (ไม่เกี่ยวกับ Library เอง แต่โผล่มาให้เห็นเพราะเป็นทางแรกที่ exercise เคสเหล่านี้จริงจัง):**
+  1. PPES บาง template (เช่น `AutoSewing/**`) เก็บ state โดย layer ฝีเข็มจริงทั้งหมด `visible=false` ไว้ (เหลือแค่ background เปล่า + stub จิ๋ว) — โหลดแล้ว canvas ว่างเหมือนพัง ทั้งที่ data ถูกต้อง. แก้ด้วย `revealIfBlank()` ใน `documentStore.ts`: หลังโหลด `.ppes`/`.ppes5` ถ้าไม่มี object ไหน visible+มีฝีเข็มจริงขนาดพอสมควรเลย จะเปิดตา layer แรกที่เข้าเกณฑ์ให้อัตโนมัติ
+  2. **`makePesImageSnapshot()` (per-object PNG, ใช้โดย `object_png`/`get_object_image` — ขับ canvas + layer thumbnail) ไม่เคยวาด `OBJECT_TYPE_BACKGROUND` เลย** (วาดแค่ path/ฝีเข็ม) ทั้งที่ engine มี `makePesBackgroundImageSnapshot()` อยู่แล้วและถูกใช้ถูกต้องในตัว render รวมเอกสาร (`getPNGBuffer`/`getThumbnailPNGBuffer`) — ช่องโหว่เดิมของพอร์ต per-object snapshot ไม่เคย dispatch ไปที่ฟังก์ชันนี้. แก้ด้วย `pescore::makeObjectPreviewImage()` ใหม่ใน `pes_ffi_core.hpp` (shared native+web ตามแพทเทิร์นเดิม) เรียกจาก `pes_ffi.cpp`/`pes_web.cpp` ทั้งคู่
+
 ### ▶ Milestone ถัดไป (Phase 1 ต่อ)
-1. ตรวจ fidelity transform กับแอปเดิม (scale semantics ของ pesData.scale ที่ไม่ scalable, rotate + stitch regen)
-2. Undo/Redo (Rust command stack ตาม PESUndoRedoCommand)
-3. Property tabs (StrokeFill, PathOps, Color, PES, SVG) + multi-select
-4. Drag & drop ไฟล์ลงหน้าต่าง (onDragDropEvent), recent files, dirty tracking
-5. Text (PPEF native sqlite + TTF) → Tools → PathEdit/StitchEdit → simulator
-6. Windows build (GN clang-cl)
-7. Smart satin จังหวะที่ 2 (เมื่อคุ้มค่า): port geometry core จาก vendored JS ลง C++ (`pes_satin_core.hpp` ต่อยอด seams เดิม, command ไม่เปลี่ยน — frontend ไม่ต้องแก้) ใช้ output ของจังหวะ 1 เป็น golden test (~~แผนเดิม crate Rust ตกไป — Rust ไม่อยู่ใน build ฝั่ง web~~)
+1. คลัง: ผูก CDN จริง (bucket/URL รอ user), แล้วสลับ `VITE_LIBRARY_BASE` จาก local ไป production
+2. ตรวจ fidelity transform กับแอปเดิม (scale semantics ของ pesData.scale ที่ไม่ scalable, rotate + stitch regen)
+3. Undo/Redo (Rust command stack ตาม PESUndoRedoCommand)
+4. Property tabs (StrokeFill, PathOps, Color, PES, SVG) + multi-select
+5. Drag & drop ไฟล์ลงหน้าต่าง (onDragDropEvent), recent files, dirty tracking
+6. Text (PPEF native sqlite + TTF) → Tools → PathEdit/StitchEdit → simulator
+7. Windows build (GN clang-cl)
+8. Smart satin จังหวะที่ 2 (เมื่อคุ้มค่า): port geometry core จาก vendored JS ลง C++ (`pes_satin_core.hpp` ต่อยอด seams เดิม, command ไม่เปลี่ยน — frontend ไม่ต้องแก้) ใช้ output ของจังหวะ 1 เป็น golden test (~~แผนเดิม crate Rust ตกไป — Rust ไม่อยู่ใน build ฝั่ง web~~)
 
 ## คำสั่งที่ใช้บ่อย
 - Test engine: `cd src-tauri && cargo test --lib engine`

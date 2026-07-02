@@ -1,7 +1,19 @@
 import { create } from "zustand";
 import * as engine from "../engine/EngineClient";
 import { preprocessSvgGradients } from "../engine/svgGradients";
-import type { DocumentSnapshot } from "../engine/types";
+import type { DocumentSnapshot, ObjectSnapshot } from "../engine/types";
+
+// Some legacy AutoSewing PPES templates ship with every real stitch layer
+// hidden by default — only a blank "Real Material" background swatch and a
+// sub-millimeter marker stub are left visible (a quirk baked into the source
+// file itself, reproduced verbatim by the port's engine). Sized in engine
+// units (10 = 1mm); real stitch art is easily two orders of magnitude bigger
+// than the marker stubs, so this comfortably excludes only those stubs.
+const REVEAL_MIN_UNITS = 50;
+// `has_stitches` excludes the (visible-by-default, but blank) "Real Material"
+// Background swatch — size alone doesn't, since it's bigger than any stub.
+const hasVisibleStitchArt = (o: ObjectSnapshot) =>
+  o.has_stitches && Math.max(o.width, o.height) >= REVEAL_MIN_UNITS;
 
 interface DocumentState {
   doc: DocumentSnapshot | null;
@@ -95,6 +107,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     }
   };
 
+  // After a load, if nothing substantial ended up visible (see
+  // REVEAL_MIN_UNITS), reveal the first substantial stitch layer so the
+  // document doesn't land on a blank canvas.
+  const revealIfBlank = async () => {
+    const doc = get().doc;
+    if (!doc) return;
+    if (doc.objects.some((o) => o.visible && hasVisibleStitchArt(o))) return;
+    const hidden = doc.objects.find(hasVisibleStitchArt);
+    if (hidden) await run(false, () => engine.setObjectVisible(hidden.index, true));
+  };
+
   return {
     doc: null,
     imageVersion: 0,
@@ -116,6 +139,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const ext = path.split(".").pop()?.toLowerCase();
       if (!get().error && (ext === "ppes" || ext === "ppes5")) {
         set({ projectPath: path });
+        await revealIfBlank();
       }
     },
 
@@ -131,6 +155,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const ext = filename.split(".").pop()?.toLowerCase();
       if (!get().error && (ext === "ppes" || ext === "ppes5")) {
         set({ projectPath: filename });
+        await revealIfBlank();
       }
     },
 
