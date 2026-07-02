@@ -77,6 +77,8 @@ export default function PropertiesPanel() {
   const imageVersion = useDocumentStore((s) => s.imageVersion);
   const applyPathEdit = useDocumentStore((s) => s.applyPathEdit);
   const deleteSelected = useDocumentStore((s) => s.deleteSelected);
+  const convertToSatin = useDocumentStore((s) => s.convertToSatin);
+  const busy = useDocumentStore((s) => s.busy);
 
   const [param, setParam] = useState<ObjectParameter | null>(null);
   const [blocks, setBlocks] = useState<ColorBlockInfo[]>([]);
@@ -650,6 +652,24 @@ export default function PropertiesPanel() {
           )}
         </div>
       </Group>
+
+      {/* Smart Satin: TTF/SVG outline -> satin columns (src/satin/smartSatin.ts) */}
+      {showFillStroke && (
+        <Group title="Smart Satin">
+          <div className="px-2.5 py-1.5">
+            <button
+              className="w-full rounded bg-amber-500 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={busy}
+              onClick={() => void convertToSatin(selectedIndex)}
+            >
+              {busy ? "กำลังแปลง..." : "แปลงเป็นซาติน (Smart Satin)"}
+            </button>
+            <div className="mt-1 text-[10px] leading-4 text-neutral-400">
+              แปลงเส้นขอบเป็น Satin Column พร้อมฝีเข็ม (object เดิมคงอยู่)
+            </div>
+          </div>
+        </Group>
+      )}
 
       {/* delete */}
       <div className="mt-auto px-2.5 py-3">
