@@ -10,6 +10,8 @@
 #include "json.hpp"
 #include "pes_ffi_core.hpp" // shared extraction logic (also used by wasm/pes_web.cpp)
 #include "pes_edit_core.hpp" // shared PathEdit/StitchEdit/path-op logic (ditto)
+#include "pes_text_core.hpp" // shared PPEF/TTF text creation/rebuild (ditto)
+#include "pes_satin_core.hpp" // shared Smart Satin engine seams (ditto)
 
 #include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
@@ -18,21 +20,6 @@
 #include "include/core/SkFontMgr.h"
 #include "include/pathops/SkPathOps.h"
 
-// SkTypeface::MakeFromData was removed in Skia M150; build typefaces from font
-// data through the platform font manager (native facade only).
-#if defined(__APPLE__)
-#include "include/ports/SkFontMgr_mac_ct.h"
-static sk_sp<SkFontMgr> pesSystemFontMgr() {
-    static sk_sp<SkFontMgr> mgr = SkFontMgr_New_CoreText(nullptr);
-    return mgr;
-}
-#elif defined(_WIN32)
-#include "include/ports/SkTypeface_win.h"
-static sk_sp<SkFontMgr> pesSystemFontMgr() {
-    static sk_sp<SkFontMgr> mgr = SkFontMgr_New_DirectWrite();
-    return mgr;
-}
-#endif
 #include "include/utils/SkTextUtils.h"
 
 #include "PesPPEFUtils.hpp" // apps2/1080_PES5Template/src/Utils (native SQLiteCpp)
@@ -522,129 +509,23 @@ bool set_param_bool(int32_t obj_index, rust::Str key, bool value) {
 }
 
 // Rebuild a PPEF text object's paths/stitches from its parameter block.
-// Port of updatePPEFText (Victor-frontend cordova/www/pes5.html:125-310),
-// using the native PPEF_Reader (SQLiteCpp) instead of sql.js.
+// The logic lives in pescore::rebuildPpefText (pes_text_core.hpp, shared with
+// the web binding).
 bool update_ppef_text(int32_t obj_index) {
     if (obj_index < 0 || obj_index >= doc()->getObjectCount())
         return false;
-    auto data = doc()->getDataObject(obj_index);
-    auto& param = data->parameter;
-    if (param.type != pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT)
-        return false;
+    return pescore::rebuildPpefText(*doc()->getDataObject(obj_index));
+}
 
-    std::string text = param.text;
-    while (!text.empty() && text.back() == ' ') text.pop_back();
-    while (!text.empty() && text.front() == ' ') text.erase(0, 1);
-    if (text.empty())
-        return false;
-
-    std::string fontName = param.fontName.empty() ? "Thai001" : param.fontName;
-    SkString fontPath = GetResourcePath(("PPEF/" + fontName + ".ppef").c_str());
-
-    pesVec2f oldCenter = data->getBoundingBox().getCenter();
-
-    PPEF_Reader ppef(fontPath.c_str());
-    ppef.readPPEFConfig();
-    // scale=1.0 matches the native reference (PES5_AddPPEFText #else branch)
-    std::vector<pesPath> shapes = ppef.getStringAsShapes(
-        text, 1.0f, param.extraLetterSpace, param.extraSpace);
-    if (shapes.empty())
-        return false;
-
-    // Effect selection mirrors pes5.html shapeIndex mapping (0..15).
-    std::unique_ptr<pesEffect> effect;
-    switch (param.shapeIndex) {
-        case 0: effect = std::make_unique<pesEffectNormal>(); break;
-        case 1: {
-            auto e = std::make_unique<pesEffectArchTop>();
-            e->angle = param.angleValue;
-            e->radius = param.radiusValue;
-            effect = std::move(e);
-            break;
-        }
-        case 2: {
-            auto e = std::make_unique<pesEffectArchBottom>();
-            e->angle = param.angleValue;
-            e->radius = param.radiusValue;
-            effect = std::move(e);
-            break;
-        }
-        case 3: effect = std::make_unique<pesEffectCircle>(); break;
-        case 4: {
-            auto e = std::make_unique<pesEffectSineWave>();
-            e->magnitude = param.waveMagnitude;
-            effect = std::move(e);
-            break;
-        }
-        case 5: effect = std::make_unique<pesEffectChevron>(true); break;
-        case 6: effect = std::make_unique<pesEffectChevron>(false); break;
-        case 7: {
-            auto e = std::make_unique<pesEffectSlant>(true);
-            e->angle = param.slantUpAngle;
-            effect = std::move(e);
-            break;
-        }
-        case 8: {
-            auto e = std::make_unique<pesEffectSlant>(false);
-            e->angle = param.slantDownAngle;
-            effect = std::move(e);
-            break;
-        }
-        case 9: effect = std::make_unique<pesEffectTriangleUp>(); break;
-        case 10: effect = std::make_unique<pesEffectTriangleDown>(); break;
-        case 11: effect = std::make_unique<pesEffectFadeRight>(); break;
-        case 12: effect = std::make_unique<pesEffectFadeLeft>(); break;
-        case 13: {
-            auto e = std::make_unique<pesEffectFadeUp>();
-            e->slantFactor = param.fadeUpSlant;
-            effect = std::move(e);
-            break;
-        }
-        case 14: {
-            auto e = std::make_unique<pesEffectFadeDown>();
-            e->slantFactor = param.fadeDownSlant;
-            effect = std::move(e);
-            break;
-        }
-        case 15: effect = std::make_unique<pesEffectInflate>(); break;
-        default: effect = std::make_unique<pesEffectNormal>(); break;
-    }
-    if (effect) {
-        effect->bItalic = param.italic;
-        effect->bCreateBorder = param.border;
-        effect->borderGap = 100 + param.borderGap;
-        effect->borderGapY = 100 + param.borderGapY;
-        effect->applyPaths(shapes);
-        if (param.shapeIndex == 1) {
-            auto* arch = static_cast<pesEffectArchTop*>(effect.get());
-            param.angleValue = arch->angle;
-            param.radiusValue = arch->radius;
-        } else if (param.shapeIndex == 2) {
-            auto* arch = static_cast<pesEffectArchBottom*>(effect.get());
-            param.angleValue = arch->angle;
-            param.radiusValue = arch->radius;
-        }
-    }
-
-    data->paths = shapes;
-    // pesData::scale multiplies parameter.ppefScaleX/Y cumulatively, so work
-    // on a copy and write it back afterwards — exactly like the JS original
-    // (pes5.html:256-263) — otherwise every update corrupts the scale state.
-    pesData::Parameter paramCopy = param;
-    const float unit_per_mm = 10.f;
-    float s = (1.f / 300.f) * (paramCopy.fontSize * unit_per_mm);
-    if (paramCopy.lastFontSize != paramCopy.fontSize) {
-        paramCopy.lastFontSize = paramCopy.fontSize;
-        paramCopy.ppefScaleX = paramCopy.ppefScaleY = 1.0f;
-    }
-    data->scale(s * paramCopy.ppefScaleX, s * paramCopy.ppefScaleY);
-    data->parameter = paramCopy;
-
-    data->applyPPEFFill();
-
-    pesVec2f newCenter = data->getBoundingBox().getCenter();
-    data->translate(oldCenter.x - newCenter.x, oldCenter.y - newCenter.y);
-    return true;
+// Drop a fresh PPEF text object at the hoop center (port of PES5_AddPPEFText,
+// shared with the web binding). Returns the new object's index, or -1 when the
+// font is missing or shaping produced no glyphs.
+int32_t add_ppef_text(rust::Str text, rust::Str font_name) {
+    pesData d;
+    if (!pescore::makePpefTextObject(d, std::string(text), std::string(font_name)))
+        return -1;
+    doc()->addObject(d);
+    return doc()->getObjectCount() - 1;
 }
 
 namespace {
@@ -654,78 +535,54 @@ namespace {
 
 } // namespace
 
-// Rebuild a TTF text object's path from its parameters — port of
-// PES5_ReplaceTTFText (PES5Command.cpp:2081-2136), loading the typeface from
-// bundled resources (TTF/<fontName>.ttf) instead of the sk_ui font combobox.
+// Rebuild a TTF text object's path from its parameters — see
+// pescore::rebuildTtfText (pes_text_core.hpp, shared with the web binding).
 bool update_ttf_text(int32_t obj_index) {
     if (obj_index < 0 || obj_index >= doc()->getObjectCount())
         return false;
-    auto data = doc()->getDataObject(obj_index);
-    pesData* pes = data.get();
-    auto& param = pes->parameter;
-    if (param.type != pesData::OBJECT_TYPE_SCALABLE_TTF_TEXT)
-        return false;
-    if (param.text.empty() || pes->paths.empty())
-        return false;
+    return pescore::rebuildTtfText(*doc()->getDataObject(obj_index));
+}
 
-    sk_sp<SkData> fontData =
-        GetResourceAsData(("TTF/" + param.fontName + ".ttf").c_str());
-    if (!fontData)
-        return false; // font file not bundled — leave object untouched
-    sk_sp<SkTypeface> typeface = pesSystemFontMgr()->makeFromData(fontData);
-    if (!typeface)
-        return false;
-
-    pesVec2f oldCenter = pes->getBoundingBox().getCenter();
-    std::string str(param.text);
-    SkScalar ptSize = param.fontSize * 10;
-
-    { // normalize so glyph "0" is exactly ptSize tall (old behavior)
-        SkFont font(typeface, ptSize);
-        SkPath path;
-        SkTextUtils::GetPath("0", 1, SkTextEncoding::kUTF8, 0, 0, font, &path);
-        auto h = std::abs(path.getBounds().height());
-        if (h > 0)
-            ptSize = ptSize * (ptSize / h);
-    }
-
-    SkFont font(typeface, ptSize);
-    SkPath path;
-    SkTextUtils::GetPath(str.c_str(), str.length(), SkTextEncoding::kUTF8, 0, 0,
-                         font, &path);
-    pesPath pes_path = toPes(path);
-    pes_path.setFilled(true);
-    pes_path.setStrokeWidth(2);
-    pes_path.setFillColor(pesGetBrotherColor(param.fillColorIndex));
-    pes_path.setStrokeColor(pesGetBrotherColor(param.colorIndex));
-    pes_path.fillRule = pes->paths[0].fillRule;
-    pes->paths.clear();
-    pes->paths.push_back(pes_path);
-
-    if (param.lastFontSize != param.fontSize) {
-        param.lastFontSize = param.fontSize;
-        param.ppefScaleX = param.ppefScaleY = 1.f;
-    }
-    // pesData::scale mutates ppefScaleX/Y cumulatively — backup & rollback
-    float sx = param.ppefScaleX;
-    float sy = param.ppefScaleY;
-    pes->scale(param.ppefScaleX, param.ppefScaleY);
-    param.ppefScaleX = sx;
-    param.ppefScaleY = sy;
-
-    // refresh dynamic stroke types (same trick as the old code)
-    pes->scale(1.f, 1.f);
-    param.ppefScaleX = sx;
-    param.ppefScaleY = sy;
-
-    pesVec2f newCenter = pes->getBoundingBox().getCenter();
-    pes->translate(oldCenter.x - newCenter.x, oldCenter.y - newCenter.y);
-    return true;
+// Drop a fresh TTF text object at the hoop center (port of PES5_AddTTFText,
+// shared with the web binding). Returns the new object's index, or -1 when the
+// font is missing or the text produced no outline.
+int32_t add_ttf_text(rust::Str text, rust::Str font_name) {
+    pesData d;
+    if (!pescore::makeTtfTextObject(d, std::string(text), std::string(font_name)))
+        return -1;
+    doc()->addObject(d);
+    return doc()->getObjectCount() - 1;
 }
 
 // Path operations — see pescore::pathOp (pes_edit_core.hpp).
 bool path_op(int32_t obj_index, int32_t path_index, rust::Str op_, float value) {
     return pescore::pathOp(doc(), obj_index, path_index, std::string(op_), value);
+}
+
+// ---- Smart Satin seams (pes_satin_core.hpp) --------------------------------
+
+rust::String get_satin_source(int32_t obj_index) {
+    if (obj_index < 0 || obj_index >= doc()->getObjectCount())
+        return rust::String("{}");
+    return rust::String(pescore::satinSource(*doc()->getDataObject(obj_index)).dump());
+}
+
+rust::String simplify_polygons(rust::Str polygons_json) {
+    try {
+        auto rings = nlohmann::json::parse(std::string(polygons_json));
+        return rust::String(pescore::simplifyPolygons(rings).dump());
+    } catch (...) {
+        return rust::String("[]");
+    }
+}
+
+int32_t add_satin_objects(rust::Str objects_json) {
+    try {
+        auto objects = nlohmann::json::parse(std::string(objects_json));
+        return pescore::addSatinObjects(doc(), objects);
+    } catch (...) {
+        return 0;
+    }
 }
 
 bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {

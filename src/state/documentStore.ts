@@ -36,6 +36,12 @@ interface DocumentState {
   duplicateSelected: () => Promise<void>;
   /** drop a ready-made parametric shape and select it */
   addShape: (shapeIndex: number) => Promise<void>;
+  /** add a PPEF text object (default Thai sample text) and select it */
+  addPpefText: () => Promise<void>;
+  /** add a TTF text object (default Thai sample text) and select it */
+  addTtfText: () => Promise<void>;
+  /** Smart Satin: convert a TTF/SVG object's outlines into satin columns */
+  convertToSatin: (index: number) => Promise<void>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
   setLocked: (index: number, locked: boolean) => Promise<void>;
   reorder: (index: number, dir: number) => Promise<void>;
@@ -209,6 +215,69 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       try {
         const doc = await engine.addShape(shapeIndex);
         // the new object is appended last → select it
+        const last = doc.objects.length - 1;
+        set((s) => ({
+          doc,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: last >= 0 ? [last] : [],
+          selectedIndex: last,
+        }));
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    addPpefText: async () => {
+      set({ busy: true, error: null });
+      try {
+        const doc = await engine.addPpefText();
+        // the new object is appended last → select it
+        const last = doc.objects.length - 1;
+        set((s) => ({
+          doc,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: last >= 0 ? [last] : [],
+          selectedIndex: last,
+        }));
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    addTtfText: async () => {
+      set({ busy: true, error: null });
+      try {
+        const doc = await engine.addTtfText();
+        // the new object is appended last → select it
+        const last = doc.objects.length - 1;
+        set((s) => ({
+          doc,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: last >= 0 ? [last] : [],
+          selectedIndex: last,
+        }));
+      } catch (e) {
+        set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    convertToSatin: async (index) => {
+      set({ busy: true, error: null });
+      try {
+        // heavy geometry (straight skeleton) — lazy-load the vendored core
+        const { convertObjectToSmartSatin } = await import("../satin/smartSatin");
+        const doc = await convertObjectToSmartSatin(index);
+        if (!doc) {
+          set({ error: "แปลงเป็น Satin ไม่สำเร็จ (ไม่พบเส้นที่แปลงได้)" });
+          return;
+        }
+        // new satin objects are appended last → select the last one
         const last = doc.objects.length - 1;
         set((s) => ({
           doc,

@@ -236,6 +236,36 @@ pub async fn add_shape(shape_index: i32) -> Result<DocumentSnapshot, String> {
     .await
 }
 
+/// Add a fresh PPEF text object at the hoop center (port of PES5_AddPPEFText).
+/// The frontend passes the default text/font ("ภิญญ์จักรปัก" / Thai001). The
+/// new object is appended last; the UI selects it.
+#[tauri::command]
+pub async fn add_ppef_text(text: String, font_name: String) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        let ok = history::run_undoable_checked(|eng| eng.add_ppef_text(&text, &font_name) >= 0);
+        if !ok {
+            return Err(format!("สร้างข้อความ PPEF ไม่สำเร็จ (ฟอนต์ {font_name})"));
+        }
+        Ok(document_snapshot())
+    })
+    .await?
+}
+
+/// Add a fresh TTF text object at the hoop center (port of PES5_AddTTFText).
+/// The frontend passes the default text/font ("ภิญญ์จักรปัก" / JS-Boaboon). The
+/// new object is appended last; the UI selects it.
+#[tauri::command]
+pub async fn add_ttf_text(text: String, font_name: String) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        let ok = history::run_undoable_checked(|eng| eng.add_ttf_text(&text, &font_name) >= 0);
+        if !ok {
+            return Err(format!("สร้างข้อความ TTF ไม่สำเร็จ (ฟอนต์ {font_name})"));
+        }
+        Ok(document_snapshot())
+    })
+    .await?
+}
+
 #[derive(Serialize)]
 pub struct DuplicateResult {
     pub snapshot: DocumentSnapshot,
@@ -432,6 +462,31 @@ pub async fn flip_object(index: i32, horizontal: bool) -> Result<DocumentSnapsho
 #[tauri::command]
 pub async fn get_parameter(index: i32) -> Result<String, String> {
     run_blocking(move || with_engine(|eng| eng.parameter_json(index))).await
+}
+
+/// Smart Satin input prep (flattened polygons + colors, JSON string).
+#[tauri::command]
+pub async fn get_satin_source(index: i32) -> Result<String, String> {
+    run_blocking(move || with_engine(|eng| eng.satin_source(index))).await
+}
+
+/// Pathops-simplify rings for the Smart Satin JS core (JSON in/out).
+#[tauri::command]
+pub async fn simplify_polygons(polygons_json: String) -> Result<String, String> {
+    run_blocking(move || with_engine(|eng| eng.simplify_polygons(&polygons_json))).await
+}
+
+/// Append satin-column objects built by the Smart Satin JS core (undoable).
+#[tauri::command]
+pub async fn add_satin_objects(objects_json: String) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        let ok = history::run_undoable_checked(|eng| eng.add_satin_objects(&objects_json) > 0);
+        if !ok {
+            return Err("สร้าง Satin Column ไม่สำเร็จ".to_string());
+        }
+        Ok(document_snapshot())
+    })
+    .await?
 }
 
 /// Vector geometry (SVG paths + paint) for crisp Konva rendering of shapes.

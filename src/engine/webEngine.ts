@@ -10,6 +10,8 @@ export interface PesModule {
   object_png(index: number): Uint8Array;
   export_bytes(format: string): Uint8Array;
   set_resource_path(path: string): void;
+  load_ppef_font(name: string, bytes: Uint8Array): string;
+  load_ttf_font(name: string, bytes: Uint8Array): string;
 }
 
 type PesFactory = (opts: Record<string, unknown>) => Promise<PesModule>;
@@ -62,6 +64,50 @@ function parse<T>(res: string): T {
   return v as T;
 }
 
+// ---- fonts (fetched on demand) ----------------------------------------------
+// The wasm module preloads only stitch textures; fonts (.ppef 42MB / 136
+// files, .ttf 209MB / 400+ files) are served under /resources/{PPEF,TTF} and
+// written into MEMFS the first time the engine needs them (it answers
+// {"missing_font": name, "font_kind": "ppef" | "ttf"}).
+type FontKind = "ppef" | "ttf";
+const FONT_DIR: Record<FontKind, string> = { ppef: "PPEF", ttf: "TTF" };
+const loadedFonts = new Set<string>();
+
+async function loadFont(
+  m: PesModule,
+  kind: FontKind,
+  name: string,
+): Promise<void> {
+  const key = `${kind}:${name}`;
+  if (loadedFonts.has(key)) return;
+  const dir = FONT_DIR[kind];
+  const res = await fetch(
+    `/resources/${dir}/${encodeURIComponent(name)}.${kind}`,
+  );
+  if (!res.ok) {
+    throw new Error(
+      `โหลดฟอนต์ ${dir} "${name}" ไม่สำเร็จ (HTTP ${res.status})`,
+    );
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  parse(kind === "ppef" ? m.load_ppef_font(name, bytes) : m.load_ttf_font(name, bytes));
+  loadedFonts.add(key);
+}
+
+const fontLists: Partial<Record<FontKind, Promise<string[]>>> = {};
+
+/** Font names from the manifest build-web.sh writes next to the fonts. */
+function listFontsWeb(kind: FontKind): Promise<string[]> {
+  let list = fontLists[kind];
+  if (!list) {
+    list = fetch(`/resources/${FONT_DIR[kind]}/fonts.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<string[]>) : []))
+      .catch(() => []);
+    fontLists[kind] = list;
+  }
+  return list;
+}
+
 /** Tauri-shaped invoke backed by the wasm engine. */
 export async function webInvoke<T = unknown>(
   cmd: string,
@@ -80,10 +126,32 @@ export async function webInvoke<T = unknown>(
     case "export_file":
       throw new Error("บันทึกไฟล์บนเว็บ: ใช้ exportDocumentBytes()");
     case "list_ppef_fonts":
+      return listFontsWeb("ppef") as Promise<unknown> as Promise<T>;
     case "list_ttf_fonts":
-      return [] as unknown as T; // fonts arrive in the web text/font phase
-    default:
-      return parse<T>(m.pes_call(cmd, JSON.stringify(a)));
+      return listFontsWeb("ttf") as Promise<unknown> as Promise<T>;
+    default: {
+      const argsJson = JSON.stringify(a);
+      let v = JSON.parse(m.pes_call(cmd, argsJson)) as unknown;
+      // font-miss loop: fetch the .ppef/.ttf the engine asked for, retry the
+      // same command (bounded — each round loads a different font or throws)
+      for (let round = 0; round < 3; round++) {
+        const miss =
+          v && typeof v === "object" && "missing_font" in v
+            ? (v as { missing_font: string; font_kind?: string })
+            : null;
+        if (!miss) break;
+        await loadFont(
+          m,
+          miss.font_kind === "ttf" ? "ttf" : "ppef",
+          miss.missing_font,
+        );
+        v = JSON.parse(m.pes_call(cmd, argsJson)) as unknown;
+      }
+      if (v && typeof v === "object" && "__error" in v) {
+        throw new Error((v as { __error: string }).__error);
+      }
+      return v as T;
+    }
   }
 }
 

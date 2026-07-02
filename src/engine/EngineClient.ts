@@ -92,11 +92,84 @@ export async function addShape(shapeIndex: number): Promise<DocumentSnapshot> {
   return invoke("add_shape", { shapeIndex });
 }
 
+/** Add a fresh PPEF text object at the hoop center (PES5_AddPPEFText):
+ *  satin-column fill, Deep Gold, default Thai sample text. The new object is
+ *  the last one; edit text/font/effects via setParameter afterwards. */
+export async function addPpefText(
+  text = "ภิญญ์จักรปัก",
+  fontName = "Thai001",
+): Promise<DocumentSnapshot> {
+  return invoke("add_ppef_text", { text, fontName });
+}
+
+/** Add a fresh TTF text object at the hoop center (PES5_AddTTFText): a filled
+ *  vector outline (Deep Gold fill, Dark Grey stroke, no stitches yet). The new
+ *  object is the last one; edit text/font/size via setParameter afterwards. */
+export async function addTtfText(
+  text = "ภิญญ์จักรปัก",
+  fontName = "JS-Boaboon",
+): Promise<DocumentSnapshot> {
+  return invoke("add_ttf_text", { text, fontName });
+}
+
 /** Vector geometry (SVG paths + paint) for crisp Konva rendering of a scalable
  *  shape that has no stitches yet. */
 export async function getObjectVector(index: number): Promise<ObjectVector> {
   const json = await invoke<string>("get_object_vector", { index });
   return JSON.parse(json);
+}
+
+// ---- Smart Satin seams (pes_satin_core.hpp; geometry runs in the vendored
+// JS core — see src/satin/smartSatin.ts) ------------------------------------
+
+export interface SatinSourcePath {
+  polygons: [number, number][][];
+  colorHex: string;
+  center: [number, number];
+  scale: [number, number];
+  simplifyValue: number;
+}
+
+export interface SatinSource {
+  istext: boolean;
+  rotateDegree: number;
+  paths: SatinSourcePath[];
+}
+
+/** Flattened polygons + prep metadata of an object's visible filled paths. */
+export async function getSatinSource(index: number): Promise<SatinSource> {
+  const json = await invoke<string>("get_satin_source", { index });
+  return JSON.parse(json);
+}
+
+/** Pathops-simplify rings (the engine-side replacement for the old
+ *  CanvasKit MakeFromSVGString+simplify+toCanvas trick). */
+export async function simplifyPolygons(
+  rings: [number, number][][],
+): Promise<[number, number][][]> {
+  const json = await invoke<string>("simplify_polygons", {
+    polygonsJson: JSON.stringify(rings),
+  });
+  return JSON.parse(json);
+}
+
+export interface SatinObjectSpec {
+  /** SVG path d-string rail pairs, in stitch order */
+  rails: [string, string][];
+  colorIndex: number;
+  center: [number, number];
+  scale: [number, number];
+  rotateDegree: number;
+  density: number;
+  pullCompensate: number;
+  noneOverlap: boolean;
+}
+
+/** Append satin-column objects built by the Smart Satin core (one undo step). */
+export async function addSatinObjects(
+  objects: SatinObjectSpec[],
+): Promise<DocumentSnapshot> {
+  return invoke("add_satin_objects", { objectsJson: JSON.stringify(objects) });
 }
 
 export interface DuplicateResult {

@@ -185,6 +185,11 @@ mod ffi {
         fn get_parameter_json(obj_index: i32) -> String;
         fn update_ppef_text(obj_index: i32) -> bool;
         fn update_ttf_text(obj_index: i32) -> bool;
+        fn add_ppef_text(text: &str, font_name: &str) -> i32;
+        fn add_ttf_text(text: &str, font_name: &str) -> i32;
+        fn get_satin_source(obj_index: i32) -> String;
+        fn simplify_polygons(polygons_json: &str) -> String;
+        fn add_satin_objects(objects_json: &str) -> i32;
         fn get_path_nodes(obj_index: i32, path_index: i32) -> Vec<PathNode>;
         fn move_path_node(
             obj_index: i32,
@@ -460,6 +465,35 @@ impl Engine<'_> {
         ffi::update_ttf_text(obj_index)
     }
 
+    /// Add a fresh PPEF text object at the hoop center (PES5_AddPPEFText).
+    /// Returns the new object's index, or -1 on failure (missing font / no glyphs).
+    pub fn add_ppef_text(&self, text: &str, font_name: &str) -> i32 {
+        ffi::add_ppef_text(text, font_name)
+    }
+
+    /// Add a fresh TTF text object at the hoop center (PES5_AddTTFText).
+    /// Returns the new object's index, or -1 on failure (missing font / no outline).
+    pub fn add_ttf_text(&self, text: &str, font_name: &str) -> i32 {
+        ffi::add_ttf_text(text, font_name)
+    }
+
+    /// Smart Satin input prep: flattened polygons + colors for an object's
+    /// visible filled paths (JSON — see pes_satin_core.hpp).
+    pub fn satin_source(&self, obj_index: i32) -> String {
+        ffi::get_satin_source(obj_index)
+    }
+
+    /// Pathops-simplify rings (JSON in/out) for the Smart Satin JS core.
+    pub fn simplify_polygons(&self, polygons_json: &str) -> String {
+        ffi::simplify_polygons(polygons_json)
+    }
+
+    /// Append satin-column objects built from rail-pair d-strings (JSON).
+    /// Returns the number of objects added.
+    pub fn add_satin_objects(&self, objects_json: &str) -> i32 {
+        ffi::add_satin_objects(objects_json)
+    }
+
     pub fn path_nodes(&self, obj_index: i32, path_index: i32) -> Vec<PathNode> {
         ffi::get_path_nodes(obj_index, path_index)
     }
@@ -648,6 +682,114 @@ mod tests {
                 (h2 - h0).abs() / h0 < 0.05,
                 "size restore drifted: {h0} -> {h2}"
             );
+        });
+    }
+
+    #[test]
+    fn add_ppef_text_creates_centered_object() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+            let idx = eng.add_ppef_text("ภิญญ์จักรปัก", "Thai001");
+            assert!(idx >= 0, "add_ppef_text failed");
+            let s = eng.object_snapshot(idx);
+            assert_eq!(s.object_type, "PPEF Text");
+            assert!(s.width > 0.0 && s.height > 0.0, "empty bbox");
+            // centered at the hoop origin (world 0,0)
+            assert!(
+                (s.x + s.width / 2.0).abs() < 1.0 && (s.y + s.height / 2.0).abs() < 1.0,
+                "not centered: bbox {} {} {}x{}",
+                s.x,
+                s.y,
+                s.width,
+                s.height
+            );
+            // the fresh object survives a rebuild without drifting (same
+            // guarantee the fixture-based idempotence test gives loaded files)
+            let (w0, h0) = bbox(eng, idx);
+            assert!(eng.update_ppef_text(idx), "rebuild failed");
+            let (w1, h1) = bbox(eng, idx);
+            assert!(
+                (w1 - w0).abs() / w0 < 0.05 && (h1 - h0).abs() / h0 < 0.05,
+                "bbox drifted after rebuild: {w0}x{h0} -> {w1}x{h1}"
+            );
+            // missing font must fail cleanly, not crash
+            assert_eq!(eng.add_ppef_text("x", "NoSuchFont"), -1);
+        });
+    }
+
+    #[test]
+    fn add_ttf_text_creates_centered_object() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+            let idx = eng.add_ttf_text("ภิญญ์จักรปัก", "JS-Boaboon");
+            assert!(idx >= 0, "add_ttf_text failed");
+            let s = eng.object_snapshot(idx);
+            assert_eq!(s.object_type, "TTF Text");
+            assert!(s.width > 0.0 && s.height > 0.0, "empty bbox");
+            // centered at the hoop origin (world 0,0)
+            assert!(
+                (s.x + s.width / 2.0).abs() < 1.0 && (s.y + s.height / 2.0).abs() < 1.0,
+                "not centered: bbox {} {} {}x{}",
+                s.x,
+                s.y,
+                s.width,
+                s.height
+            );
+            // the fresh object survives a rebuild without drifting
+            let (w0, h0) = bbox(eng, idx);
+            assert!(eng.update_ttf_text(idx), "rebuild failed");
+            let (w1, h1) = bbox(eng, idx);
+            assert!(
+                (w1 - w0).abs() / w0 < 0.05 && (h1 - h0).abs() / h0 < 0.05,
+                "bbox drifted after rebuild: {w0}x{h0} -> {w1}x{h1}"
+            );
+            // missing font must fail cleanly, not crash
+            assert_eq!(eng.add_ttf_text("x", "NoSuchFont"), -1);
+        });
+    }
+
+    #[test]
+    fn smart_satin_seams_roundtrip() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+
+            // add_satin_objects: one rail pair 10mm apart -> satin object with stitches
+            let objs = r#"[{"rails":[["M0,0 L500,0","M0,100 L500,100"]],
+                "colorIndex":5,"center":[0,50],"scale":[1.002,1.0],"rotateDegree":0,
+                "density":2.5,"pullCompensate":0,"noneOverlap":false}]"#;
+            assert_eq!(eng.add_satin_objects(objs), 1, "add_satin_objects failed");
+            let idx = eng.object_count() - 1;
+            let s = eng.object_snapshot(idx);
+            assert_eq!(s.object_type, "Satin Column");
+            assert!(s.has_stitches, "satin column should have zigzag stitches");
+            // inverse 1.002 nudge + recenter restores the requested center
+            assert!(
+                (s.x + s.width / 2.0).abs() < 1.0 && (s.y + s.height / 2.0 - 50.0).abs() < 1.0,
+                "bad center: {} {} {}x{}",
+                s.x,
+                s.y,
+                s.width,
+                s.height
+            );
+
+            // get_satin_source on a TTF text object -> polygons + prep metadata
+            let t = eng.add_ttf_text("ภิญ", "JS-Boaboon");
+            assert!(t >= 0);
+            let src: serde_json::Value = serde_json::from_str(&eng.satin_source(t)).unwrap();
+            assert_eq!(src["istext"], true);
+            let paths = src["paths"].as_array().unwrap();
+            assert!(!paths.is_empty(), "TTF text should yield satin source paths");
+            assert!(!paths[0]["polygons"].as_array().unwrap().is_empty());
+            let sv = paths[0]["simplifyValue"].as_f64().unwrap();
+            assert!((sv - 0.1).abs() < 1e-4, "simplifyValue {sv}");
+
+            // simplify_polygons: self-intersecting bowtie -> valid rings
+            let out = eng.simplify_polygons("[[[0,0],[100,100],[100,0],[0,100],[0,0]]]");
+            let rings: serde_json::Value = serde_json::from_str(&out).unwrap();
+            assert!(!rings.as_array().unwrap().is_empty(), "bowtie should simplify to rings");
         });
     }
 

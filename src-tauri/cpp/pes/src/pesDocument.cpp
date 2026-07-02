@@ -4260,7 +4260,9 @@ void pesDocument::updateInfo() const {
     }
 #ifdef __EMSCRIPTEN__
         char szx[512];
-        sprintf(szx, "if( window.pes5StatusMessage ) { pes5StatusMessage('%s'); }", info);
+        // typeof-guard: wasm also runs under Node (tests/smoke), where neither
+        // window nor the old app's pes5StatusMessage hook exists.
+        sprintf(szx, "if( typeof window !== 'undefined' && window.pes5StatusMessage ) { pes5StatusMessage('%s'); }", info);
         emscripten_run_script(szx);
 #else
     SkDebugf( "Update PES: %s\n", info );

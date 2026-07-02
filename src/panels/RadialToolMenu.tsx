@@ -14,6 +14,7 @@ import {
   Eye,
   FolderOpen,
   Type,
+  TypeOutline,
   Columns3,
   Square,
   Circle,
@@ -125,6 +126,12 @@ export default function RadialToolMenu() {
   const deleteSelected = useDocumentStore((s) => s.deleteSelected);
   const duplicateSelected = useDocumentStore((s) => s.duplicateSelected);
   const addShape = useDocumentStore((s) => s.addShape);
+  const addPpefText = useDocumentStore((s) => s.addPpefText);
+  const addTtfText = useDocumentStore((s) => s.addTtfText);
+  const convertToSatin = useDocumentStore((s) => s.convertToSatin);
+  const selectedType = useDocumentStore(
+    (s) => s.doc?.objects[s.selectedIndex]?.object_type,
+  );
   const requestFit = useViewportStore((s) => s.requestFit);
   const viewMode = useUiStore((s) => s.viewMode);
   const setViewMode = useUiStore((s) => s.setViewMode);
@@ -191,8 +198,18 @@ export default function RadialToolMenu() {
           icon: <Minus size={18} />,
           onClick: run(() => void addShape(SHAPE.line)),
         },
-        soon("ppefText", "PPEF Text", <Type size={18} />),
-        soon("ttfText", "TTF Text", <Type size={18} />),
+        {
+          id: "ppefText",
+          label: "ข้อความปัก (PPEF Text)",
+          icon: <TypeOutline size={18} />,
+          onClick: run(() => void addPpefText()),
+        },
+        {
+          id: "ttfText",
+          label: "ข้อความ TTF (TTF Text)",
+          icon: <Type size={18} />,
+          onClick: run(() => void addTtfText()),
+        },
         soon("satin", "Satin Column", <Columns3 size={18} />),
       ],
     },
@@ -210,6 +227,13 @@ export default function RadialToolMenu() {
           onClick: run(() =>
             setViewMode(viewMode === "pathEdit" ? "design" : "pathEdit"),
           ),
+        },
+        {
+          id: "smartSatin",
+          label: "แปลงเป็นซาติน (Smart Satin)",
+          icon: <Columns3 size={18} />,
+          disabled: !["TTF Text", "SVG"].includes(selectedType ?? ""),
+          onClick: run(() => void convertToSatin(selectedIndex)),
         },
         {
           id: "stitchEdit",

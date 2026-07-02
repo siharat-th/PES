@@ -53,7 +53,13 @@ if [ ! -f "$OBJ/sqlite3.o" ] || [ "$SQ/sqlite3/sqlite3.c" -nt "$OBJ/sqlite3.o" ]
 fi
 CORE_OBJS+=("$OBJ/sqlite3.o")
 
-echo "[2/4] pes engine"
+echo "[2/4] pes engine (+ ppef helpers)"
+# ppef objects FIRST: PesUnicodeUtils defines the same th_is* helpers as the
+# engine's UnicodeHelper *plus* UTF8Iterator. wasm-ld pulls archive members in
+# order per unresolved symbol, so PesUnicodeUtils must satisfy PesPPEFUtils's
+# th_is* refs before UnicodeHelper does — otherwise both members load and the
+# th_is* definitions collide (ld64 on native resolves it the same way).
+for s in PesPPEFUtils PesUnicodeUtils; do cxx "$SRC/ppef/$s.cpp" "$OBJ/ppef_$s.o"; done
 for s in UnicodeHelper clipper pesAutoBranch pesBuffer pesClipper pesColor \
   pesCubicSuperPath pesData pesDocument pesEMBClassify pesEMBFill pesEffect \
   pesEncoder pesGcode pesMath pesPath pesPathUtility pesPolyline pesRectangle \
@@ -62,19 +68,23 @@ for s in UnicodeHelper clipper pesAutoBranch pesBuffer pesClipper pesColor \
   cxx "$SRC/pes/src/$s.cpp" "$OBJ/$s.o"
 done
 
-echo "[3/4] skia-ext + ppef + SQLiteCpp + web binding"
+echo "[3/4] skia-ext + SQLiteCpp + web binding"
 for s in pes_skpath_ext pes_png_ext pes_pathops_ext; do cxx "$SRC/skia-ext/$s.cpp" "$OBJ/$s.o"; done
-for s in PesPPEFUtils PesUnicodeUtils; do cxx "$SRC/ppef/$s.cpp" "$OBJ/ppef_$s.o"; done
 for s in Backup Column Database Exception Statement Transaction; do cxx "$SQ/src/$s.cpp" "$OBJ/sqlcpp_$s.o"; done
 cxx "$SRC/pes_resources.cpp" "$OBJ/pes_resources.o"
-# embind binding compiled with --bind
+# embind binding compiled with --bind (recompile when any shared core changes)
 WEB_OBJ="$OBJ/pes_web.o"
-if [ ! -f "$WEB_OBJ" ] || [ "$SRC/wasm/pes_web.cpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_ffi_core.hpp" -nt "$WEB_OBJ" ]; then
+if [ ! -f "$WEB_OBJ" ] || [ "$SRC/wasm/pes_web.cpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_ffi_core.hpp" -nt "$WEB_OBJ" ] \
+   || [ "$SRC/pes_edit_core.hpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_text_core.hpp" -nt "$WEB_OBJ" ] \
+   || [ "$SRC/pes_satin_core.hpp" -nt "$WEB_OBJ" ]; then
   echo "  cc pes_web.cpp"; em++ $CXXFLAGS --bind -c "$SRC/wasm/pes_web.cpp" -o "$WEB_OBJ"
 fi
 
 echo "[4/4] link -> $OUTDIR/pes_web.js  (preloading textures)"
 # On-demand archive (matches native + smoke) avoids the th_is* duplicate symbol.
+# Recreate from scratch: `ar r` would UPDATE a stale archive in place and keep
+# its old member order, defeating the ppef-first ordering above.
+rm -f "$OUTDIR/libpesweb.a"
 emar rcs "$OUTDIR/libpesweb.a" "${CORE_OBJS[@]}"
 # -sFETCH=1: pesDocument references emscripten_fetch (remote-asset path); the
 # Fetch API must be linked even though textures are preloaded into MEMFS.
@@ -86,4 +96,28 @@ em++ -O2 --bind -fexceptions -sDISABLE_EXCEPTION_CATCHING=0 \
   "$WEB_OBJ" "$OUTDIR/libpesweb.a" "$WOUT"/*.wasm.a -o "$OUTDIR/pes_web.js"
 
 rm -f "$OUTDIR/libpesweb.a"
+
+# Fonts are NOT preloaded (PPEF 42MB / 136 files, TTF 209MB / 400+ files) —
+# serve them next to the app so webEngine.ts can fetch each .ppef/.ttf on
+# demand into MEMFS (load_ppef_font / load_ttf_font). fonts.json is the
+# manifest behind list_ppef_fonts / list_ttf_fonts on web.
+echo "[5/5] PPEF + TTF fonts -> public/resources (on-demand fetch at runtime)"
+sync_fonts() { # $1 = subdir (PPEF|TTF), $2 = extension (ppef|ttf)
+  local fontdir="$REPO/public/resources/$1"
+  mkdir -p "$fontdir"
+  rsync -a --include="*.$2" --exclude='*' "$RES/$1/" "$fontdir/"
+  {
+    printf '['
+    local first=1 f
+    for f in "$RES/$1"/*."$2"; do
+      [ "$first" -eq 1 ] || printf ','
+      printf '"%s"' "$(basename "$f" ".$2")"
+      first=0
+    done
+    printf ']\n'
+  } > "$fontdir/fonts.json"
+}
+sync_fonts PPEF ppef
+sync_fonts TTF ttf
+
 echo "OK: web engine -> $OUTDIR/pes_web.{js,wasm,data}"

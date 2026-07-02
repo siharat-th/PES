@@ -76,6 +76,13 @@ void flip_object(int32_t obj_index, bool horizontal);
 rust::String get_parameter_json(int32_t obj_index);
 bool update_ppef_text(int32_t obj_index);
 bool update_ttf_text(int32_t obj_index);
+int32_t add_ppef_text(rust::Str text, rust::Str font_name);
+int32_t add_ttf_text(rust::Str text, rust::Str font_name);
+
+// Smart Satin seams (JSON in/out — see pes_satin_core.hpp)
+rust::String get_satin_source(int32_t obj_index);
+rust::String simplify_polygons(rust::Str polygons_json);
+int32_t add_satin_objects(rust::Str objects_json);
 
 // Path-node editing (PathEdit mode). Nodes are reported/moved in WORLD
 // coordinates; the object's display rotation is folded in here.

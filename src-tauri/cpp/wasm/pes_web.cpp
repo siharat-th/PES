@@ -20,13 +20,18 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <sys/stat.h> // mkdir (MEMFS font dir)
+
 #include <algorithm>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 #include "json.hpp"
 #include "pes_ffi_core.hpp"
 #include "pes_edit_core.hpp" // shared PathEdit/StitchEdit/path-op logic
+#include "pes_text_core.hpp" // shared PPEF/TTF text creation/rebuild
+#include "pes_satin_core.hpp" // shared Smart Satin engine seams
 
 #include "pesBuffer.hpp"
 #include "pesColor.hpp"
@@ -169,6 +174,16 @@ bool moveObjectTo(int from, int to) {
 }
 
 json errorJson(const std::string& msg) { return json{{"__error", msg}}; }
+
+// Fonts are fetched on demand (not preloaded into pes_web.data). When a
+// command needs a font that is not in MEMFS yet, return this instead of
+// mutating anything — webEngine.ts fetches the font (.ppef or .ttf, picked by
+// font_kind), calls load_ppef_font/load_ttf_font, and retries the same command.
+json missingFontJson(const std::string& fontName, const char* kind = "ppef") {
+    return json{{"__error", std::string(kind) + " font not loaded: " + fontName},
+                {"missing_font", fontName},
+                {"font_kind", kind}};
+}
 
 // ============================================================================
 // pes_call — JSON dispatch. `a` is the parsed args object (camelCase keys, as
@@ -333,6 +348,63 @@ json dispatch(const std::string& cmd, const json& a) {
         });
         return documentSnapshotJson();
     }
+    if (cmd == "add_ppef_text") {
+        std::string text = sarg("text");
+        std::string fontName = sarg("fontName");
+        if (fontName.empty()) fontName = "Thai001";
+        if (!pescore::ppefFontAvailable(fontName)) return missingFontJson(fontName);
+        bool ok = undoableChecked([&]() -> bool {
+            pesData d;
+            if (!pescore::makePpefTextObject(d, text, fontName)) return false;
+            doc()->addObject(d);
+            return true;
+        });
+        if (!ok) return errorJson("สร้างข้อความ PPEF ไม่สำเร็จ (ฟอนต์ " + fontName + ")");
+        return documentSnapshotJson();
+    }
+    if (cmd == "add_ttf_text") {
+        std::string text = sarg("text");
+        std::string fontName = sarg("fontName");
+        if (fontName.empty()) fontName = "JS-Boaboon";
+        if (!pescore::ttfFontAvailable(fontName)) return missingFontJson(fontName, "ttf");
+        bool ok = undoableChecked([&]() -> bool {
+            pesData d;
+            if (!pescore::makeTtfTextObject(d, text, fontName)) return false;
+            doc()->addObject(d);
+            return true;
+        });
+        if (!ok) return errorJson("สร้างข้อความ TTF ไม่สำเร็จ (ฟอนต์ " + fontName + ")");
+        return documentSnapshotJson();
+    }
+
+    // ---- Smart Satin seams (pes_satin_core.hpp) ----
+    if (cmd == "get_satin_source") {
+        int idx = iarg("index");
+        if (!inRange(idx)) return std::string("{}");
+        // returns a STRING (the frontend JSON.parses it, matching Tauri)
+        return pescore::satinSource(*doc()->getDataObject(idx)).dump();
+    }
+    if (cmd == "simplify_polygons") {
+        try {
+            auto rings = json::parse(sarg("polygonsJson"));
+            return pescore::simplifyPolygons(rings).dump();
+        } catch (...) {
+            return std::string("[]");
+        }
+    }
+    if (cmd == "add_satin_objects") {
+        json objects;
+        try {
+            objects = json::parse(sarg("objectsJson"));
+        } catch (...) {
+            return errorJson("add_satin_objects: invalid JSON");
+        }
+        bool ok = undoableChecked([&]() -> bool {
+            return pescore::addSatinObjects(doc(), objects) > 0;
+        });
+        if (!ok) return errorJson("สร้าง Satin Column ไม่สำเร็จ");
+        return documentSnapshotJson();
+    }
     if (cmd == "duplicate_objects") {
         std::vector<int> src;
         for (auto& v : a["indices"]) src.push_back(v.get<int>());
@@ -432,6 +504,24 @@ json dispatch(const std::string& cmd, const json& a) {
     if (cmd == "set_parameter") {
         int idx = iarg("index");
         std::string key = sarg("key");
+        // Text re-shapes after every parameter change (mirrors the native
+        // set_parameter command), which reads the font from MEMFS — check the
+        // font BEFORE mutating so the frontend can fetch it and retry cleanly.
+        if (inRange(idx)) {
+            auto& p = doc()->getDataObject(idx)->parameter;
+            // "font" is the set_parameter key the panel sends (matches
+            // native set_param_str); the value is the new font's name.
+            std::string font = (key == "font" && a.contains("value") && a["value"].is_string())
+                                   ? a["value"].get<std::string>()
+                                   : std::string(p.fontName);
+            if (p.type == pesData::OBJECT_TYPE_SCALABLE_PPEF_TEXT) {
+                if (font.empty()) font = "Thai001";
+                if (!pescore::ppefFontAvailable(font)) return missingFontJson(font);
+            } else if (p.type == pesData::OBJECT_TYPE_SCALABLE_TTF_TEXT) {
+                if (font.empty()) font = "JS-Boaboon";
+                if (!pescore::ttfFontAvailable(font)) return missingFontJson(font, "ttf");
+            }
+        }
         bool ok = undoableChecked([&]() -> bool {
             if (!inRange(idx)) return false;
             auto& jv = a["value"];
@@ -439,11 +529,14 @@ json dispatch(const std::string& cmd, const json& a) {
             if (jv.is_boolean()) applied = setParamBool(idx, key, jv.get<bool>());
             else if (jv.is_string()) applied = setParamStr(idx, key, jv.get<std::string>());
             else if (jv.is_number()) applied = setParamNum(idx, key, jv.get<float>());
-            // SVG objects re-color their paths + regenerate fill/stroke stitches
-            // (shared with the native facade). NOTE: PPEF/TTF text regeneration
-            // (updatePPEFText/updateTTFText) still lives in pes_ffi.cpp and will
-            // be lifted into the shared core in the text/font phase.
-            if (applied) pescore::updateSvgObject(*doc()->getDataObject(idx));
+            if (applied) {
+                auto data = doc()->getDataObject(idx);
+                // type-specific regeneration (mirrors commands.rs): PPEF/TTF
+                // text re-shapes (shared core); SVG re-colors paths +
+                // regenerates stitches.
+                if (!pescore::rebuildPpefText(*data) && !pescore::rebuildTtfText(*data))
+                    pescore::updateSvgObject(*data);
+            }
             return applied;
         });
         if (!ok) return errorJson("unknown parameter key: " + key);
@@ -663,12 +756,37 @@ static val web_export_bytes(std::string format) {
     return pesBufferToVal(doc()->exportBufferAs(format));
 }
 
+// Write a fetched font into MEMFS — the on-demand counterpart of the preloaded
+// stitch textures. Called by webEngine.ts when a command answers
+// {"missing_font": ..., "font_kind": ...}.
+static std::string writeFontFile(const char* dir, const std::string& path,
+                                 const val& bytes, const std::string& name) {
+    std::vector<uint8_t> data = valToBytes(bytes);
+    if (data.empty()) return errorJson("empty font data: " + name).dump();
+    ::mkdir(GetResourcePath(dir).c_str(), 0755); // no-op if it exists
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return errorJson("cannot write " + path).dump();
+    std::fwrite(data.data(), 1, data.size(), f);
+    std::fclose(f);
+    return json{{"ok", true}}.dump();
+}
+
+// .ppef → read by PPEF_Reader (sqlite); .ttf → read by makeTtfTypeface.
+static std::string web_load_ppef_font(std::string name, val bytes) {
+    return writeFontFile("PPEF", pescore::ppefFontPath(name), bytes, name);
+}
+static std::string web_load_ttf_font(std::string name, val bytes) {
+    return writeFontFile("TTF", pescore::ttfFontPath(name), bytes, name);
+}
+
 EMSCRIPTEN_BINDINGS(pes_web) {
     emscripten::function("set_resource_path", &web_set_resource_path);
     emscripten::function("pes_call", &web_pes_call);
     emscripten::function("load_input", &web_load_input);
     emscripten::function("object_png", &web_object_png);
     emscripten::function("export_bytes", &web_export_bytes);
+    emscripten::function("load_ppef_font", &web_load_ppef_font);
+    emscripten::function("load_ttf_font", &web_load_ttf_font);
 }
 
 // ---- parameter setters (verbatim from pes_ffi.cpp set_param_*) ---------------
@@ -714,6 +832,7 @@ bool setParamBool(int obj_index, const std::string& k, bool value) {
 bool setParamStr(int obj_index, const std::string& k, const std::string& value) {
     if (!inRange(obj_index)) return false;
     if (k == "text") { doc()->setDataParameterText(obj_index, value); return true; }
+    if (k == "font") { doc()->setDataParameterFont(obj_index, value); return true; }
     return false;
 }
 }  // namespace
