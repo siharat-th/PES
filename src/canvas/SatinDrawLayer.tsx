@@ -49,25 +49,33 @@ export default function SatinDrawLayer() {
   const ptsRef = useRef(pts);
   ptsRef.current = pts;
 
-  // engine-smoothed rail d-strings, recomputed whenever the nodes change
+  // Engine-smoothed rail d-strings. While the mouse is over the canvas, the
+  // hover point is appended to the CURRENT rail (the one the next click will
+  // extend), so that rail's trailing segment rubber-bands from its last node to
+  // the cursor — a straight line into a corner node, a curve into a curve node
+  // (Shift), exactly as clicking there would draw it. Latest result wins.
   useEffect(() => {
     if (pts.length === 0) {
       setPreview(null);
       return;
     }
+    const [a, b] = splitRails(pts);
+    if (cursor) {
+      const hk: SatinKnot = { x: cursor.x, y: cursor.y, curve: cursor.shift };
+      (pts.length % 2 === 0 ? a : b).push(hk); // next click extends this rail
+    }
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await satinColumnRails(splitRails(pts));
+    satinColumnRails([a, b])
+      .then((res) => {
         if (!cancelled) setPreview(res);
-      } catch {
+      })
+      .catch(() => {
         /* preview is best-effort; keep the last good one */
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [pts]);
+  }, [pts, cursor]);
 
   // Enter = commit, Esc = cancel, Backspace = drop last node. App.tsx defers
   // Delete/Backspace to this layer in satinDraw mode.
@@ -173,7 +181,10 @@ export default function SatinDrawLayer() {
         );
       })}
 
-      {/* cursor hint: pending rung to the partner + a marker at the cursor */}
+      {/* cursor hint: the pending rung to the partner rail (dashed) + a marker
+          at the cursor showing the pending node's type (square = corner, circle
+          = curve). The pending rail SEGMENT itself is the live rail path above,
+          which already rubber-bands to the cursor. */}
       {cursor && pendingPartner && (
         <Line
           points={[pendingPartner.x, pendingPartner.y, cursor.x, cursor.y]}
@@ -190,8 +201,8 @@ export default function SatinDrawLayer() {
             x={cursor.x}
             y={cursor.y}
             radius={r}
-            fill={nextIsB ? RAIL_B : CURVE_FILL}
-            opacity={0.5}
+            fill={CURVE_FILL}
+            opacity={0.55}
             listening={false}
           />
         ) : (
@@ -202,8 +213,8 @@ export default function SatinDrawLayer() {
             height={sq}
             offsetX={sq / 2}
             offsetY={sq / 2}
-            fill={nextIsB ? RAIL_B : CORNER_FILL}
-            opacity={0.5}
+            fill={CORNER_FILL}
+            opacity={0.55}
             listening={false}
           />
         ))}
