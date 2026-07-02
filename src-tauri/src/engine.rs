@@ -190,6 +190,7 @@ mod ffi {
         fn get_satin_source(obj_index: i32) -> String;
         fn simplify_polygons(polygons_json: &str) -> String;
         fn add_satin_objects(objects_json: &str) -> i32;
+        fn satin_column_rails(rails_json: &str) -> String;
         fn get_path_nodes(obj_index: i32, path_index: i32) -> Vec<PathNode>;
         fn move_path_node(
             obj_index: i32,
@@ -486,6 +487,11 @@ impl Engine<'_> {
     /// Pathops-simplify rings (JSON in/out) for the Smart Satin JS core.
     pub fn simplify_polygons(&self, polygons_json: &str) -> String {
         ffi::simplify_polygons(polygons_json)
+    }
+
+    /// Smooth manual satin-column rails (clicked knots) into d-strings + center.
+    pub fn satin_column_rails(&self, rails_json: &str) -> String {
+        ffi::satin_column_rails(rails_json)
     }
 
     /// Append satin-column objects built from rail-pair d-strings (JSON).
@@ -790,6 +796,41 @@ mod tests {
             let out = eng.simplify_polygons("[[[0,0],[100,100],[100,0],[0,100],[0,0]]]");
             let rings: serde_json::Value = serde_json::from_str(&out).unwrap();
             assert!(!rings.as_array().unwrap().is_empty(), "bowtie should simplify to rings");
+        });
+    }
+
+    #[test]
+    fn satin_column_rails_smooths_knots() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+
+            // manual draw: two rails, 3 knots each (corner, curve, corner) — the
+            // engine's own cubic-superpath (== the old app) smooths them.
+            let rails = r#"{"rails":[
+                [{"x":-50,"y":-200,"curve":false},{"x":-60,"y":0,"curve":true},{"x":-50,"y":200,"curve":false}],
+                [{"x":50,"y":-200,"curve":false},{"x":60,"y":0,"curve":true},{"x":50,"y":200,"curve":false}]]}"#;
+            let v: serde_json::Value =
+                serde_json::from_str(&eng.satin_column_rails(rails)).unwrap();
+            let da = v["rails"][0].as_str().unwrap();
+            let db = v["rails"][1].as_str().unwrap();
+            assert!(!da.is_empty() && !db.is_empty(), "empty rail d-strings");
+            // curve node -> a cubic; corner node -> a straight line into it
+            assert!(da.contains('C'), "curve node lost (no cubic): {da}");
+            assert!(da.contains('L'), "corner straightening lost (no line): {da}");
+            // center = combined bbox center (~origin here)
+            assert!(v["center"][0].as_f64().unwrap().abs() < 1.0);
+
+            // feed the smoothed rails back through add_satin_objects -> real column
+            let objs = format!(
+                r#"[{{"rails":[[{da:?},{db:?}]],"colorIndex":11,"center":[{},{}],
+                    "scale":[1,1],"rotateDegree":0,"density":2.5,"pullCompensate":0,"noneOverlap":false}}]"#,
+                v["center"][0], v["center"][1],
+            );
+            assert_eq!(eng.add_satin_objects(&objs), 1, "commit failed");
+            let s = eng.object_snapshot(eng.object_count() - 1);
+            assert_eq!(s.object_type, "Satin Column");
+            assert!(s.has_stitches, "drawn satin column should have stitches");
         });
     }
 

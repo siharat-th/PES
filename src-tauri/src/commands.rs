@@ -476,6 +476,13 @@ pub async fn simplify_polygons(polygons_json: String) -> Result<String, String> 
     run_blocking(move || with_engine(|eng| eng.simplify_polygons(&polygons_json))).await
 }
 
+/// Smooth manual satin-column rails (clicked knots -> two rail d-strings +
+/// center) for the interactive draw tool's preview and commit (read-only).
+#[tauri::command]
+pub async fn satin_column_rails(rails_json: String) -> Result<String, String> {
+    run_blocking(move || with_engine(|eng| eng.satin_column_rails(&rails_json))).await
+}
+
 /// Append satin-column objects built by the Smart Satin JS core (undoable).
 #[tauri::command]
 pub async fn add_satin_objects(objects_json: String) -> Result<DocumentSnapshot, String> {

@@ -83,6 +83,8 @@ int32_t add_ttf_text(rust::Str text, rust::Str font_name);
 rust::String get_satin_source(int32_t obj_index);
 rust::String simplify_polygons(rust::Str polygons_json);
 int32_t add_satin_objects(rust::Str objects_json);
+// Manual satin-column draw: smooth clicked knots into rail d-strings + center.
+rust::String satin_column_rails(rust::Str rails_json);
 
 // Path-node editing (PathEdit mode). Nodes are reported/moved in WORLD
 // coordinates; the object's display rotation is folded in here.

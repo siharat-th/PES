@@ -26,9 +26,10 @@
 #include <string>
 
 #include "json.hpp"
+#include "pesCubicSuperPath.hpp" // manual satin-column rail smoothing (natural spline)
 #include "pesData.hpp"
 #include "pesDocument.hpp"
-#include "pesPathUtility.hpp" // toPes(SkPath)
+#include "pesPathUtility.hpp" // toPes/toSk
 #include "pes_ffi_core.hpp"   // colorToHex
 
 #include "include/core/SkPath.h"
@@ -207,6 +208,47 @@ inline int addSatinObjects(pesDocument* doc, const nlohmann::json& objects) {
         added++;
     }
     return added;
+}
+
+// Manual "Satin Column" draw tool — smooth one rail's clicked knots into a
+// pesPath using the engine's OWN cubic-superpath (byte-identical to the old
+// app's PesSatinColumn/pesCubicSuperPath::calculateCSP — a global natural cubic
+// Bézier spline, piecewise between corner knots, straight into corners).
+// `knots` = [{"x":..,"y":..,"curve":bool}, ...].
+inline pesCubicSuperPath buildRailCsp(const nlohmann::json& knots) {
+    pesCubicSuperPath csp;
+    if (knots.is_array()) {
+        for (const auto& k : knots) {
+            float x = k.value("x", 0.f), y = k.value("y", 0.f);
+            if (k.value("curve", false)) csp.addCurvePoint(pesVec2f(x, y));
+            else                         csp.addCornerPoint(pesVec2f(x, y));
+        }
+    }
+    csp.calculateCSP();
+    return csp;
+}
+
+// Smooth the two rails of a manual satin column into SVG d-strings, for both the
+// live draw preview (Konva <Path>) and the commit (fed back through
+// addSatinObjects). Input {"rails": [[{x,y,curve}, ...], [...]]}; returns
+// {"rails":[dA,dB], "center":[cx,cy]} where center is the combined bbox center,
+// so addSatinObjects's re-center leaves the column exactly where it was drawn.
+inline nlohmann::json satinColumnRails(const nlohmann::json& in) {
+    using nlohmann::json;
+    json rails = in.value("rails", json::array());
+    std::string ds[2] = {"", ""};
+    PesPath comb;
+    for (int r = 0; r < 2 && r < (int)rails.size(); r++) {
+        pesCubicSuperPath csp = buildRailCsp(rails[r]);
+        if (csp.knots.empty()) continue;
+        SkPath sk = toSk(csp.path);
+        ds[r] = SkParsePath::ToSVGString(sk).c_str();
+        comb.addPath(sk);
+    }
+    SkPath combined = comb;
+    SkRect b = combined.getBounds();
+    return json{{"rails", {ds[0], ds[1]}},
+                {"center", {b.centerX(), b.centerY()}}};
 }
 
 } // namespace pescore

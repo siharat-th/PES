@@ -405,6 +405,14 @@ json dispatch(const std::string& cmd, const json& a) {
         if (!ok) return errorJson("สร้าง Satin Column ไม่สำเร็จ");
         return documentSnapshotJson();
     }
+    if (cmd == "satin_column_rails") {
+        try {
+            auto in = json::parse(sarg("railsJson"));
+            return pescore::satinColumnRails(in).dump();
+        } catch (...) {
+            return std::string("{}");
+        }
+    }
     if (cmd == "duplicate_objects") {
         std::vector<int> src;
         for (auto& v : a["indices"]) src.push_back(v.get<int>());

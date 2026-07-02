@@ -27,7 +27,7 @@ export default function RulerLayer({ mode }: { mode: ViewMode }) {
   const height = centerY * 2;
   if (width === 0 || height === 0) return null;
 
-  const dark = mode !== "design";
+  const dark = mode !== "design" && mode !== "satinDraw";
   const c = dark
     ? { band: "#2a2c30", border: "#4a4d53", tick: "#8a8f96", label: "#c2c6cc" }
     : { band: "#f7f7f8", border: "#c9c9cc", tick: "#8a8a8a", label: "#555555" };

@@ -7,6 +7,7 @@ import ObjectsLayer from "./ObjectsLayer";
 import StitchLayer from "./StitchLayer";
 import PathEditLayer from "./PathEditLayer";
 import StitchEditLayer from "./StitchEditLayer";
+import SatinDrawLayer from "./SatinDrawLayer";
 import PathNodeMenu from "./PathNodeMenu";
 import { ViewContext } from "./viewContext";
 import { useDocumentStore } from "../state/documentStore";
@@ -126,7 +127,9 @@ export default function EmbroideryStage() {
     <div
       ref={containerRef}
       className={`h-full w-full overflow-hidden transition-colors ${
-        viewMode === "design" ? "bg-neutral-300" : "bg-neutral-800"
+        viewMode === "design" || viewMode === "satinDraw"
+          ? "bg-neutral-300"
+          : "bg-neutral-800"
       }`}
     >
       <ViewContext.Provider
@@ -157,6 +160,13 @@ export default function EmbroideryStage() {
           )}
           {/* StitchEdit shows the stitches as editable thread lines (no texture) */}
           {viewMode === "stitchEdit" && <StitchEditLayer />}
+          {/* Satin Column draw tool: click rails over the existing art */}
+          {viewMode === "satinDraw" && (
+            <>
+              <ObjectsLayer readOnly />
+              <SatinDrawLayer />
+            </>
+          )}
           {/* Rulers overlay everything, pinned in screen space */}
           <RulerLayer mode={viewMode} />
         </Stage>

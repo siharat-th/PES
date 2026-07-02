@@ -585,6 +585,15 @@ int32_t add_satin_objects(rust::Str objects_json) {
     }
 }
 
+rust::String satin_column_rails(rust::Str rails_json) {
+    try {
+        auto in = nlohmann::json::parse(std::string(rails_json));
+        return rust::String(pescore::satinColumnRails(in).dump());
+    } catch (...) {
+        return rust::String("{}");
+    }
+}
+
 bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {
     if (obj_index < 0 || obj_index >= doc()->getObjectCount())
         return false;

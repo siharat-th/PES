@@ -172,6 +172,33 @@ export async function addSatinObjects(
   return invoke("add_satin_objects", { objectsJson: JSON.stringify(objects) });
 }
 
+/** One clicked node of the manual Satin Column draw tool (world/engine units). */
+export interface SatinKnot {
+  x: number;
+  y: number;
+  /** shift-click → smooth (curve) node; plain click → sharp (corner) node */
+  curve: boolean;
+}
+
+export interface SatinRails {
+  /** [railA, railB] as SVG d-strings (empty string for an empty rail) */
+  rails: [string, string];
+  /** combined bbox center — pass as `center` so the column stays where drawn */
+  center: [number, number];
+}
+
+/** Smooth the two rails' clicked knots into d-strings via the engine's own
+ *  cubic-superpath (the old app's satin-column spline). Drives both the live
+ *  draw preview and the commit (fed back through addSatinObjects). */
+export async function satinColumnRails(
+  rails: SatinKnot[][],
+): Promise<SatinRails> {
+  const json = await invoke<string>("satin_column_rails", {
+    railsJson: JSON.stringify({ rails }),
+  });
+  return JSON.parse(json);
+}
+
 export interface DuplicateResult {
   snapshot: DocumentSnapshot;
   new_indices: number[];

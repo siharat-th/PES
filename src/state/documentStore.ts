@@ -40,6 +40,10 @@ interface DocumentState {
   addPpefText: () => Promise<void>;
   /** add a TTF text object (default Thai sample text) and select it */
   addTtfText: () => Promise<void>;
+  /** commit a manually-drawn satin column (two rails of clicked knots) — the
+   *  engine smooths the rails, then it's added + selected. Returns true if a
+   *  column was created (needs ≥2 knots per rail, equal counts). */
+  addSatinColumn: (rails: engine.SatinKnot[][]) => Promise<boolean>;
   /** Smart Satin: convert a TTF/SVG object's outlines into satin columns */
   convertToSatin: (index: number) => Promise<void>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
@@ -262,6 +266,52 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         }));
       } catch (e) {
         set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    addSatinColumn: async (rails) => {
+      const [railA = [], railB = []] = rails;
+      // same guard as the old app (PES5_StopSatinColumnInput): ≥2 knots per
+      // rail and equal counts, so every rung has both ends.
+      if (railA.length < 2 || railA.length !== railB.length) {
+        set({ error: "ต้องมีจุดอย่างน้อย 2 คู่ และรางทั้งสองเท่ากัน" });
+        return false;
+      }
+      set({ busy: true, error: null });
+      try {
+        // engine smooths the clicked knots into rail d-strings (its own
+        // cubic-superpath — identical to the old app) + the bbox center, so the
+        // column lands exactly where it was drawn. Then reuse addSatinObjects.
+        const { rails: [dA, dB], center } = await engine.satinColumnRails(rails);
+        if (!dA || !dB) {
+          set({ error: "สร้าง Satin Column ไม่สำเร็จ" });
+          return false;
+        }
+        const spec: engine.SatinObjectSpec = {
+          rails: [[dA, dB]],
+          colorIndex: 11, // Deep Gold — matches new PPEF/TTF text
+          center,
+          scale: [1, 1],
+          rotateDegree: 0,
+          density: 2.5,
+          pullCompensate: 0,
+          noneOverlap: false,
+        };
+        const doc = await engine.addSatinObjects([spec]);
+        // the new object is appended last → select it
+        const last = doc.objects.length - 1;
+        set((s) => ({
+          doc,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: last >= 0 ? [last] : [],
+          selectedIndex: last,
+        }));
+        return true;
+      } catch (e) {
+        set({ error: String(e) });
+        return false;
       } finally {
         set({ busy: false });
       }

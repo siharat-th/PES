@@ -45,6 +45,7 @@ pub fn run() {
             commands::get_satin_source,
             commands::simplify_polygons,
             commands::add_satin_objects,
+            commands::satin_column_rails,
             commands::get_object_vector,
             commands::set_object_visible,
             commands::set_object_locked,

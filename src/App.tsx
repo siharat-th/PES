@@ -180,8 +180,13 @@ export default function App() {
       const typing = tag === "INPUT" || tag === "TEXTAREA";
       const mod = e.metaKey || e.ctrlKey;
       if (!typing && (e.key === "Delete" || e.key === "Backspace")) {
-        // the edit layers handle Delete (remove node / stitch point)
-        if (viewMode === "pathEdit" || viewMode === "stitchEdit") return;
+        // the edit layers handle Delete (remove node / stitch point / satin knot)
+        if (
+          viewMode === "pathEdit" ||
+          viewMode === "stitchEdit" ||
+          viewMode === "satinDraw"
+        )
+          return;
         void deleteSelected();
       } else if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -385,6 +390,12 @@ export default function App() {
           {viewMode === "stitchEdit" && (
             <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-neutral-900/80 px-4 py-1.5 text-[11px] text-neutral-200 shadow-lg ring-1 ring-white/10">
               ลากจุดเพื่อย้าย · <b>ดับเบิลคลิกที่เส้น</b> แทรกจุด · <b>Delete</b> ลบจุด
+            </div>
+          )}
+          {viewMode === "satinDraw" && (
+            <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-neutral-900/80 px-4 py-1.5 text-[11px] text-neutral-200 shadow-lg ring-1 ring-white/10">
+              <b>คลิก</b> จุดมุม · <b>Shift+คลิก</b> จุดโค้ง · สลับซ้าย–ขวาเป็นคู่ ·{" "}
+              <b>Enter</b> เสร็จ · <b>Backspace</b> ลบจุด · <b>Esc</b> ยกเลิก
             </div>
           )}
         </div>

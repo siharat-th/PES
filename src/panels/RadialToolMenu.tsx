@@ -210,7 +210,15 @@ export default function RadialToolMenu() {
           icon: <Type size={18} />,
           onClick: run(() => void addTtfText()),
         },
-        soon("satin", "Satin Column", <Columns3 size={18} />),
+        {
+          id: "satin",
+          label: "ซาตินคอลัมน์ (Satin Column)",
+          icon: <Columns3 size={18} />,
+          active: viewMode === "satinDraw",
+          onClick: run(() =>
+            setViewMode(viewMode === "satinDraw" ? "design" : "satinDraw"),
+          ),
+        },
       ],
     },
     {

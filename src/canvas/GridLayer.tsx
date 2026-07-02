@@ -21,8 +21,9 @@ export default function GridLayer({
   const hh = hoopHMm * UNITS_PER_MM;
   const step = 50; // 5 mm
 
-  // stitch + node-edit modes use the dark fabric so threads/handles pop
-  const dark = mode !== "design";
+  // stitch + node-edit modes use the dark fabric so threads/handles pop;
+  // satinDraw draws over the artwork, so it keeps the light design canvas
+  const dark = mode !== "design" && mode !== "satinDraw";
   const c = dark
     ? {
         fabric: "#34373d",
