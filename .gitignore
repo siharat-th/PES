@@ -33,8 +33,9 @@ CLAUDE.md
 /build/
 /public/wasm/
 /public/resources/
-# Auto Punch tracer wasm (scripts/build-tracer.sh — quantette + visioncortex)
-/public/tracer/
+# Auto Punch tracer: wasm-pack OUTPUT is generated (scripts/build-tracer.sh);
+# the hand-written worker (public/tracer/tracer-worker.js) is committed source.
+/public/tracer/pes_tracer*
 # design library payload (scripts/build-library.sh — manifests + design files
 # + baked thumbs from the legacy asset trees; prod serves it from the CDN)
 /public/library/
