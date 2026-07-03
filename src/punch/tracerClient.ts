@@ -14,6 +14,9 @@ export interface TraceOptions {
   /** "cutout" (default): regions never overlap — each stitched once */
   hierarchical?: "cutout" | "stacked";
   mode?: "spline" | "polygon" | "none";
+  /** edge-preserving pre-smoothing radius (0 = off, 1..4) — flattens photo
+   *  noise for cleaner colour separation without blurring edges */
+  smoothing?: number;
 }
 
 export interface TraceColorLayer {

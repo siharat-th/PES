@@ -38,39 +38,81 @@ const parseHex = (hex: string) => {
   return { r: (v >> 16) & 0xff, g: (v >> 8) & 0xff, b: v & 0xff };
 };
 
-// sRGB hex -> Oklab [L, a, b]. Thread matching is done in Oklab (perceptual):
-// plain RGB distance sends a cream to a gray and an olive-green to a brown.
-const hexToOklab = (hex: string): [number, number, number] => {
+// sRGB hex -> CIELAB (D65). Thread matching uses CIEDE2000 (below), the
+// perceptual gold standard: plain RGB sends a muddy cream to gray, and naive
+// Oklab distance sends a yellow-green to brown — CIEDE2000 gets both right.
+const hexToLab = (hex: string): [number, number, number] => {
   const { r, g, b } = parseHex(hex);
   const lin = (c: number) => {
     c /= 255;
     return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   };
-  const lr = lin(r),
-    lg = lin(g),
-    lb = lin(b);
-  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
-  return [
-    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
-  ];
+  const R = lin(r),
+    G = lin(g),
+    B = lin(b);
+  const x = (R * 0.4124564 + G * 0.3575761 + B * 0.1804375) / 0.95047;
+  const y = R * 0.2126729 + G * 0.7151522 + B * 0.072175;
+  const z = (R * 0.0193339 + G * 0.119192 + B * 0.9503041) / 1.08883;
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f(x),
+    fy = f(y),
+    fz = f(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 };
 
-// Weight chroma (a, b) ~3x more than lightness (L). This keeps hue fidelity:
-// a warm cream matches Beige not Gray, an olive-green matches Moss Green not
-// Russet Brown, while genuinely desaturated tones still fall to a neutral.
-const LIGHTNESS_WEIGHT = 0.35;
-const oklabDist2 = (
-  a: [number, number, number],
-  b: [number, number, number],
+// CIEDE2000 colour difference between two CIELAB colours.
+const DEG = Math.PI / 180;
+const ciede2000 = (
+  c1: [number, number, number],
+  c2: [number, number, number],
 ) => {
-  const dl = a[0] - b[0];
-  const da = a[1] - b[1];
-  const db = a[2] - b[2];
-  return LIGHTNESS_WEIGHT * dl * dl + da * da + db * db;
+  const [L1, a1, b1] = c1;
+  const [L2, a2, b2] = c2;
+  const C1 = Math.hypot(a1, b1);
+  const C2 = Math.hypot(a2, b2);
+  const aC = (C1 + C2) / 2;
+  const G = 0.5 * (1 - Math.sqrt(aC ** 7 / (aC ** 7 + 25 ** 7)));
+  const a1p = a1 * (1 + G);
+  const a2p = a2 * (1 + G);
+  const C1p = Math.hypot(a1p, b1);
+  const C2p = Math.hypot(a2p, b2);
+  const aCp = (C1p + C2p) / 2;
+  let h1 = Math.atan2(b1, a1p) / DEG;
+  if (h1 < 0) h1 += 360;
+  let h2 = Math.atan2(b2, a2p) / DEG;
+  if (h2 < 0) h2 += 360;
+  const dLp = L2 - L1;
+  const dCp = C2p - C1p;
+  let dhp = 0;
+  if (C1p * C2p !== 0) {
+    dhp = h2 - h1;
+    if (dhp > 180) dhp -= 360;
+    else if (dhp < -180) dhp += 360;
+  }
+  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin((dhp * DEG) / 2);
+  const aLp = (L1 + L2) / 2;
+  let ahp: number;
+  if (C1p * C2p === 0) ahp = h1 + h2;
+  else if (Math.abs(h1 - h2) > 180) ahp = (h1 + h2 + 360) / 2;
+  else ahp = (h1 + h2) / 2;
+  const T =
+    1 -
+    0.17 * Math.cos((ahp - 30) * DEG) +
+    0.24 * Math.cos(2 * ahp * DEG) +
+    0.32 * Math.cos((3 * ahp + 6) * DEG) -
+    0.2 * Math.cos((4 * ahp - 63) * DEG);
+  const dTheta = 30 * Math.exp(-(((ahp - 275) / 25) ** 2));
+  const Rc = 2 * Math.sqrt(aCp ** 7 / (aCp ** 7 + 25 ** 7));
+  const Sl = 1 + (0.015 * (aLp - 50) ** 2) / Math.sqrt(20 + (aLp - 50) ** 2);
+  const Sc = 1 + 0.045 * aCp;
+  const Sh = 1 + 0.015 * aCp * T;
+  const Rt = -Math.sin(2 * dTheta * DEG) * Rc;
+  return Math.sqrt(
+    (dLp / Sl) ** 2 +
+      (dCp / Sc) ** 2 +
+      (dHp / Sh) ** 2 +
+      Rt * (dCp / Sc) * (dHp / Sh),
+  );
 };
 
 const checker: React.CSSProperties = {
@@ -94,6 +136,7 @@ export default function AutoPunchPanel() {
     Math.round(hoopWidthMm * 0.6),
   );
   const [despeckleMm2, setDespeckleMm2] = useState(0.5);
+  const [smoothing, setSmoothing] = useState(3);
   const [cornerDeg, setCornerDeg] = useState(60);
   const [stacked, setStacked] = useState(false);
   const [withBackground, setWithBackground] = useState(false);
@@ -216,6 +259,7 @@ export default function AutoPunchPanel() {
           despeckleAreaPx,
           cornerThresholdDeg: cornerDeg,
           hierarchical: stacked ? "stacked" : "cutout",
+          smoothing,
         })
           .then((res) => {
             if (seq.current !== job) return; // stale
@@ -236,24 +280,24 @@ export default function AutoPunchPanel() {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [open, img, maxColors, outWidthMm, despeckleMm2, cornerDeg, stacked]);
+  }, [open, img, maxColors, outWidthMm, despeckleMm2, smoothing, cornerDeg, stacked]);
 
-  // Brother thread swatches in perceptual (Oklab) space, computed once.
-  const paletteOk = useMemo(
-    () => palette.map((p) => ({ p, ok: hexToOklab(p.hex) })),
+  // Brother thread swatches in CIELAB, computed once.
+  const paletteLab = useMemo(
+    () => palette.map((p) => ({ p, lab: hexToLab(p.hex) })),
     [palette],
   );
 
-  // traced color → nearest Brother thread in weighted Oklab (display AND commit
-  // use this index, so preview == result)
+  // traced color → nearest Brother thread by CIEDE2000 (display AND commit use
+  // this index, so preview == result)
   const threads = useMemo(() => {
-    if (!result || paletteOk.length === 0) return [];
+    if (!result || paletteLab.length === 0) return [];
     return result.colors.map((c) => {
-      const ok = hexToOklab(c.rgb);
-      let best = paletteOk[0].p;
+      const lab = hexToLab(c.rgb);
+      let best = paletteLab[0].p;
       let bestD = Infinity;
-      for (const { p, ok: pok } of paletteOk) {
-        const d = oklabDist2(ok, pok);
+      for (const { p, lab: plab } of paletteLab) {
+        const d = ciede2000(lab, plab);
         if (d < bestD) {
           bestD = d;
           best = p;
@@ -261,7 +305,7 @@ export default function AutoPunchPanel() {
       }
       return best;
     });
-  }, [result, paletteOk]);
+  }, [result, paletteLab]);
 
   const outHeightMm = useMemo(() => {
     if (!result) return 0;
@@ -565,6 +609,22 @@ export default function AutoPunchPanel() {
                 value={despeckleMm2}
                 onChange={(e) => setDespeckleMm2(Number(e.target.value))}
               />
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="flex justify-between text-neutral-600">
+                ความเนียน (ลด noise) <b>{smoothing}</b>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={4}
+                value={smoothing}
+                onChange={(e) => setSmoothing(Number(e.target.value))}
+              />
+              <span className="text-[10px] text-neutral-400">
+                สูงขึ้น = สีเรียบ แยกตัววัตถุกับพื้นหลังชัดขึ้น (เหมาะกับภาพถ่าย)
+              </span>
             </label>
 
             <details className="rounded-md border border-neutral-100 p-2">

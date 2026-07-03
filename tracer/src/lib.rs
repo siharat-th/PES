@@ -43,6 +43,10 @@ pub struct TraceOptions {
     pub splice_threshold_deg: f64,
     pub max_iterations: usize,
     pub path_precision: u32,
+    /// edge-preserving pre-smoothing radius (0 = off, 1..3). Cleans photo noise
+    /// so regions cluster crisply (fur stays cream, grass a uniform green)
+    /// without blurring the subject's outline.
+    pub smoothing: u32,
 }
 
 impl Default for TraceOptions {
@@ -59,6 +63,7 @@ impl Default for TraceOptions {
             splice_threshold_deg: 45.0,
             max_iterations: 10,
             path_precision: 2,
+            smoothing: 3,
         }
     }
 }
@@ -85,6 +90,61 @@ pub struct TraceResult {
     /// the FULL-resolution emergent clusters in their true colours (no
     /// reduction) — the "like the web app" reference preview, not embroidered
     pub web_colors: Vec<ColorLayer>,
+}
+
+/// Edge-preserving (bilateral) smoothing on RGBA. Each opaque pixel becomes a
+/// weighted average of its neighbours, where the weight falls off with both
+/// distance AND colour difference — so it flattens noise inside a region but
+/// keeps hard edges (the subject's silhouette) intact. Transparent pixels are
+/// left untouched and excluded from the averages.
+fn bilateral_smooth(rgba: &[u8], w: usize, h: usize, radius: i32) -> Vec<u8> {
+    if radius < 1 {
+        return rgba.to_vec();
+    }
+    let sigma_color2 = 2.0 * 30.0 * 30.0;
+    let sigma_space2 = 2.0 * (radius as f32) * (radius as f32);
+    let mut out = rgba.to_vec();
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let ci = (y as usize * w + x as usize) * 4;
+            if rgba[ci + 3] < 128 {
+                continue;
+            }
+            let (cr, cg, cb) = (rgba[ci] as f32, rgba[ci + 1] as f32, rgba[ci + 2] as f32);
+            let (mut sr, mut sg, mut sb, mut sw) = (0.0f32, 0.0, 0.0, 0.0);
+            for dy in -radius..=radius {
+                let ny = y + dy;
+                if ny < 0 || ny >= h as i32 {
+                    continue;
+                }
+                for dx in -radius..=radius {
+                    let nx = x + dx;
+                    if nx < 0 || nx >= w as i32 {
+                        continue;
+                    }
+                    let ni = (ny as usize * w + nx as usize) * 4;
+                    if rgba[ni + 3] < 128 {
+                        continue;
+                    }
+                    let (nr, ng, nb) =
+                        (rgba[ni] as f32, rgba[ni + 1] as f32, rgba[ni + 2] as f32);
+                    let cd = (nr - cr) * (nr - cr) + (ng - cg) * (ng - cg) + (nb - cb) * (nb - cb);
+                    let sd = (dx * dx + dy * dy) as f32;
+                    let wgt = (-cd / sigma_color2 - sd / sigma_space2).exp();
+                    sr += nr * wgt;
+                    sg += ng * wgt;
+                    sb += nb * wgt;
+                    sw += wgt;
+                }
+            }
+            if sw > 0.0 {
+                out[ci] = (sr / sw).round().clamp(0.0, 255.0) as u8;
+                out[ci + 1] = (sg / sw).round().clamp(0.0, 255.0) as u8;
+                out[ci + 2] = (sb / sw).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    out
 }
 
 fn deg2rad(deg: f64) -> f64 {
@@ -191,9 +251,10 @@ pub fn trace_impl(
         web_colors: vec![],
     };
 
-    // 1. build the ColorImage from the raw (downscaled) pixels — NO posterize.
-    //    Mark transparent pixels (alpha 0) so vtracer keys them out.
-    let mut pixels = rgba.to_vec();
+    // 1. edge-preserving pre-smoothing (flattens photo noise, keeps edges), then
+    //    build the ColorImage — NO posterize. Mark transparent pixels (alpha 0)
+    //    so vtracer keys them out.
+    let mut pixels = bilateral_smooth(rgba, w, h, opts.smoothing.min(4) as i32);
     let mut has_transparency = false;
     for px in pixels.chunks_exact_mut(4) {
         if px[3] < 128 {
