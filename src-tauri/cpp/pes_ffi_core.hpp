@@ -46,11 +46,28 @@ inline std::string objectTypeToString(int type) {
 // composite renderer (pesDocument.cpp's fndrawpes) already special-cases this
 // via makePesBackgroundImageSnapshot(); the per-object getters need the same
 // dispatch so a Background layer's thumbnail/canvas image isn't blank.
-inline sk_sp<SkImage> makeObjectPreviewImage(pesDocument* doc, int index) {
+// scale > 1 requests a zoom-proportional raster so a stitched object stays
+// crisp when the canvas is zoomed in (the frontend passes a power-of-two LOD
+// bucket). Background objects are photo snapshots that don't take a scale.
+inline sk_sp<SkImage> makeObjectPreviewImage(pesDocument* doc, int index, float scale = 1.0f) {
     if (index < 0 || index >= doc->getObjectCount()) return nullptr;
-    if (doc->getDataParameter(index).type == pesData::OBJECT_TYPE_BACKGROUND)
-        return doc->makePesBackgroundImageSnapshot(index);
-    return doc->makePesImageSnapshot(index);
+    auto& param = doc->getDataParameter(index);
+    // A per-object preview must render the object even when its visible flag is
+    // off. The canvas caches this raster while the object is hidden and draws
+    // it the instant the eye is toggled on (setVisible doesn't invalidate the
+    // image cache), and the Layers thumbnail shows every layer, hidden ones
+    // included. But makeImageSnapshot / makePesBackgroundImageSnapshot both
+    // early-out on !visible — they're written for the whole-document composite
+    // (getPNGBuffer/getThumbnailPNGBuffer), which skips hidden layers itself —
+    // so an un-toggled hidden layer would render blank. Force-show around the
+    // single render call, then restore (process-wide singleton, single-threaded).
+    const bool wasVisible = param.visible;
+    param.visible = true;
+    sk_sp<SkImage> img = (param.type == pesData::OBJECT_TYPE_BACKGROUND)
+        ? doc->makePesBackgroundImageSnapshot(index)
+        : doc->makePesImageSnapshot(index, scale);
+    param.visible = wasVisible;
+    return img;
 }
 
 inline std::string colorToHex(const pesColor& c) {

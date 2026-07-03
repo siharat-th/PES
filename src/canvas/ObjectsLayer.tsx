@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Layer, Group, Path, Image as KonvaImage, Transformer } from "react-konva";
 import Konva from "konva";
 import { useDocumentStore } from "../state/documentStore";
 import { getObjectImageBitmap, getObjectVector } from "../engine/EngineClient";
 import type { ObjectSnapshot, ObjectVector, VectorPath } from "../engine/types";
 import { lookupGradient, type SvgGradient } from "../engine/svgGradients";
-import { useView, layerTransform } from "./viewContext";
+import { useView, layerTransform, type ViewTransform } from "./viewContext";
 
 interface CachedImage {
   version: number;
+  scale: number; // LOD bucket the bitmap was rasterized at (1,2,4,8)
   bitmap: ImageBitmap;
 }
 interface CachedVector {
@@ -20,6 +21,63 @@ interface CachedVector {
  *  drawn as a crisp Konva vector — no raster, no stroke clipping, instant
  *  recolor. Everything with real stitches stays a cached engine PNG. */
 const isVector = (o: ObjectSnapshot) => o.scalable && !o.has_stitches;
+
+// ── Zoom-proportional LOD ────────────────────────────────────────────────────
+// A stitched object's PNG is baked at the engine's 1px-per-0.1mm base, so Konva
+// upsamples it on zoom → blur. Instead we re-request it at a power-of-two scale
+// ≥ zoom, so Konva only ever DOWNSAMPLES the raster (crisp). Buckets keep the
+// re-raster count to a handful of boundaries across the whole zoom range, and
+// culling means only on-screen objects pay for the high-res render.
+const MAX_LOD = 8; // ceiling (~2000 DPI); beyond this deep zoom stays a bit soft
+const MAX_RASTER_PX = 2048; // per-object cap so one huge object can't blow memory
+const VIEW_DEBOUNCE_MS = 140; // re-raster only after zoom/pan settles
+
+/** Power-of-two scale bucket covering a zoom level (1, 2, 4, 8). */
+function lodForZoom(zoom: number): number {
+  if (zoom <= 1) return 1;
+  return Math.min(2 ** Math.ceil(Math.log2(zoom)), MAX_LOD);
+}
+
+/** LOD for one object, lowered so its raster stays under MAX_RASTER_PX. */
+function lodForObject(zoom: number, o: ObjectSnapshot): number {
+  let lod = lodForZoom(zoom);
+  const maxDim = Math.max(o.width, o.height) + 6; // +engine margin
+  while (lod > 1 && lod * maxDim > MAX_RASTER_PX) lod /= 2;
+  return lod;
+}
+
+interface WorldRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** Visible world-coordinate rectangle for the current view transform. */
+function visibleWorldRect(v: ViewTransform): WorldRect {
+  const w = v.centerX * 2;
+  const h = v.centerY * 2;
+  const ox = v.centerX + v.x;
+  const oy = v.centerY + v.y;
+  return {
+    x0: -ox / v.zoom,
+    y0: -oy / v.zoom,
+    x1: (w - ox) / v.zoom,
+    y1: (h - oy) / v.zoom,
+  };
+}
+
+/** Does the object's (axis-aligned) bbox overlap the viewport? A margin covers
+ *  rotation and lets objects just off-screen stay ready when panning. */
+function objVisible(o: ObjectSnapshot, r: WorldRect): boolean {
+  const m = Math.max(o.width, o.height) * 0.5 + 20;
+  return !(
+    o.x + o.width < r.x0 - m ||
+    o.x > r.x1 + m ||
+    o.y + o.height < r.y0 - m ||
+    o.y > r.y1 + m
+  );
+}
 
 /** "#rrggbb" + opacity → an rgba() string Konva understands. */
 function rgba(hex?: string, opacity = 1): string | undefined {
@@ -87,40 +145,72 @@ export default function ObjectsLayer({ readOnly = false }: { readOnly?: boolean 
 
   const objects = doc?.objects ?? [];
 
-  // (Re)fetch each object's render resource when the document content changes:
-  // a vector (shape) or a bitmap (stitched), whichever applies now.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const obj of objects) {
-        if (isVector(obj)) {
-          const cached = vecRef.current.get(obj.index);
-          if (cached && cached.version === imageVersion) continue;
-          const vector = await getObjectVector(obj.index);
-          if (cancelled) return;
-          vecRef.current.set(obj.index, { version: imageVersion, vector });
-          forceRender((n) => n + 1);
-        } else {
-          const cached = cacheRef.current.get(obj.index);
-          if (cached && cached.version === imageVersion) continue;
-          const bitmap = await getObjectImageBitmap(obj.index);
-          if (cancelled) return;
-          if (bitmap) {
-            cacheRef.current.set(obj.index, { version: imageVersion, bitmap });
-            forceRender((n) => n + 1);
-          }
-        }
+  // Latest values for the async render passes (which outlive one render).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+  const versionRef = useRef(imageVersion);
+  versionRef.current = imageVersion;
+  const passRef = useRef(0); // per-pass id; a stale pass bails after its await
+
+  // (Re)fetch each object's render resource: a crisp vector (shape) or a
+  // zoom-proportional bitmap (stitched). Only visible objects rasterize at full
+  // LOD, and a bitmap is never downgraded — so pan/zoom stays smooth and deep
+  // zoom stays sharp. Runs on content change, and debounced when the view settles.
+  const ensureImages = useCallback(async () => {
+    const myPass = ++passRef.current;
+    const objs = objectsRef.current;
+    const ver = versionRef.current;
+    const v = viewRef.current;
+    const rect = v.centerX > 0 && v.centerY > 0 ? visibleWorldRect(v) : null;
+
+    for (const obj of objs) {
+      if (isVector(obj)) {
+        const cached = vecRef.current.get(obj.index);
+        if (cached && cached.version === ver) continue;
+        const vector = await getObjectVector(obj.index);
+        if (passRef.current !== myPass) return;
+        vecRef.current.set(obj.index, { version: ver, vector });
+        forceRender((n) => n + 1);
+        continue;
       }
-      // drop caches for objects that no longer exist
-      for (const key of [...cacheRef.current.keys()])
-        if (!objects.some((o) => o.index === key)) cacheRef.current.delete(key);
-      for (const key of [...vecRef.current.keys()])
-        if (!objects.some((o) => o.index === key)) vecRef.current.delete(key);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [objects, imageVersion]);
+      const visible = !rect || objVisible(obj, rect);
+      const wantLod = visible ? lodForObject(v.zoom, obj) : 1;
+      const cached = cacheRef.current.get(obj.index);
+      if (cached && cached.version === ver) {
+        // fresh content already cached: re-raster only to gain sharpness for a
+        // visible object; never downgrade an off-screen or already-crisp one.
+        if (!visible || cached.scale >= wantLod) continue;
+      }
+      const bitmap = await getObjectImageBitmap(obj.index, wantLod);
+      if (passRef.current !== myPass) return;
+      if (bitmap) {
+        cached?.bitmap.close();
+        cacheRef.current.set(obj.index, { version: ver, scale: wantLod, bitmap });
+        forceRender((n) => n + 1);
+      }
+    }
+    // drop caches for objects that no longer exist
+    for (const key of [...cacheRef.current.keys()])
+      if (!objs.some((o) => o.index === key)) {
+        cacheRef.current.get(key)?.bitmap.close();
+        cacheRef.current.delete(key);
+      }
+    for (const key of [...vecRef.current.keys()])
+      if (!objs.some((o) => o.index === key)) vecRef.current.delete(key);
+  }, []);
+
+  // content / version change → refresh right away
+  useEffect(() => {
+    void ensureImages();
+  }, [objects, imageVersion, ensureImages]);
+
+  // view change → re-raster visible objects at the new zoom, once it settles
+  useEffect(() => {
+    const t = window.setTimeout(() => void ensureImages(), VIEW_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [view.zoom, view.x, view.y, view.centerX, view.centerY, ensureImages]);
 
   // Attach transformer to all selected nodes.
   useEffect(() => {

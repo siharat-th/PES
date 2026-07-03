@@ -134,9 +134,10 @@ public:
                                      float maxh = -1.0f,
                                      float x = -1000000.0f,
                                      float y = -1000000.0f,
-                                     bool dpi300 = false) const;
+                                     bool dpi300 = false,
+                                     float renderScale = 1.0f) const;
 
-    sk_sp<SkImage> makePesImageSnapshot(int idx) const;
+    sk_sp<SkImage> makePesImageSnapshot(int idx, float renderScale = 1.0f) const;
 
     void drawPesObject(SkCanvas* canvas, int idx, float scale) const;
     

@@ -98,8 +98,11 @@ pub async fn get_document() -> Result<DocumentSnapshot, String> {
 }
 
 #[tauri::command]
-pub async fn get_object_image(index: i32) -> Result<Response, String> {
-    let png = run_blocking(move || with_engine(|eng| eng.object_image_png(index))).await?;
+pub async fn get_object_image(index: i32, scale: Option<f32>) -> Result<Response, String> {
+    // scale > 1 = zoom-proportional LOD raster (crisp deep zoom); defaults to 1
+    // for callers that don't pass it (e.g. layer-panel thumbnails).
+    let scale = scale.unwrap_or(1.0);
+    let png = run_blocking(move || with_engine(|eng| eng.object_image_png(index, scale))).await?;
     Ok(Response::new(png))
 }
 

@@ -10,7 +10,7 @@
 //   set_resource_path(path)               -> void
 //   pes_call(cmd, argsJson)               -> resultJson   (all JSON in/out cmds)
 //   load_input(kind, Uint8Array)          -> resultJson    ("ppes"|"pes"|"svg")
-//   object_png(index)                     -> Uint8Array
+//   object_png(index, scale)              -> Uint8Array
 //   export_bytes(format)                  -> Uint8Array
 //   thumbnail_png(wmax, hmax)             -> Uint8Array   (content-cropped doc thumb)
 //
@@ -755,9 +755,9 @@ static std::string web_load_input(std::string kind, val bytes) {
     return documentSnapshotJson().dump();
 }
 
-static val web_object_png(int index) {
+static val web_object_png(int index, float scale) {
     if (!inRange(index)) return bytesToVal(nullptr, 0);
-    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index);
+    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index, scale);
     if (!img) return bytesToVal(nullptr, 0);
     sk_sp<SkData> png = SkImageToPngData(img);
     if (!png) return bytesToVal(nullptr, 0);

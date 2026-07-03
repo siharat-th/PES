@@ -17,6 +17,12 @@ import {
 import { useDocumentStore } from "../state/documentStore";
 import type { ObjectSnapshot, GroupSnapshot } from "../engine/types";
 
+// Only genuine text objects carry a meaningful `text`; imported "Stitch"/PES2
+// layers keep a leftover source string (e.g. "ภิญญ์จักรปัก สวัสดีค่ะ") that is
+// noise in the layer list, so we only show the subtitle for these types.
+const TEXT_TYPES = new Set(["PPEF Text", "TTF Text", "Monogram"]);
+const showsText = (o: ObjectSnapshot) => TEXT_TYPES.has(o.object_type) && !!o.text;
+
 /** Right-side layer list — port of Prop_LayerHandler.js, now with layer groups:
  *  folder-like headers (collapse/expand, rename, cascade hide/lock, select all),
  *  with ungrouped objects and groups projected into one tree. */
@@ -224,7 +230,7 @@ export default function LayerPanel() {
       <LayerThumb index={obj.index} version={imageVersion} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs font-medium">{obj.object_type}</div>
-        {obj.text && (
+        {showsText(obj) && (
           <div className="truncate text-[11px] text-neutral-500">{obj.text}</div>
         )}
       </div>
@@ -449,7 +455,7 @@ export default function LayerPanel() {
               <div className="truncate text-xs font-medium">
                 {draggedObj.object_type}
               </div>
-              {draggedObj.text && (
+              {showsText(draggedObj) && (
                 <div className="truncate text-[11px] text-neutral-500">
                   {draggedObj.text}
                 </div>

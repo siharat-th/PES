@@ -140,7 +140,7 @@ mod ffi {
 
         fn get_object_count() -> i32;
         fn get_object_snapshot(index: i32) -> ObjectSnapshot;
-        fn get_object_image_png(index: i32) -> Vec<u8>;
+        fn get_object_image_png(index: i32, scale: f32) -> Vec<u8>;
 
         fn translate_object(index: i32, dx: f32, dy: f32);
         fn scale_object(index: i32, sx: f32, sy: f32);
@@ -313,8 +313,8 @@ impl Engine<'_> {
             .collect()
     }
 
-    pub fn object_image_png(&self, index: i32) -> Vec<u8> {
-        ffi::get_object_image_png(index)
+    pub fn object_image_png(&self, index: i32, scale: f32) -> Vec<u8> {
+        ffi::get_object_image_png(index, scale)
     }
 
     pub fn translate_object(&self, index: i32, dx: f32, dy: f32) {
@@ -1201,7 +1201,7 @@ mod tests {
             assert!(snap.width > 0.0 && snap.height > 0.0, "empty bbox: {snap:?}");
             assert!(snap.visible);
 
-            let png = eng.object_image_png(0);
+            let png = eng.object_image_png(0, 1.0);
             assert!(!png.is_empty(), "object image PNG is empty");
             assert_eq!(&png[1..4], b"PNG");
 
@@ -1354,11 +1354,11 @@ mod tests {
             // ellipse must actually RENDER (its path must reach SkPath, not just
             // produce a bbox) — guards the arc-command-not-converted regression
             assert!(
-                !eng.object_image_png(n_ellipse).is_empty(),
+                !eng.object_image_png(n_ellipse, 1.0).is_empty(),
                 "ellipse did not render (path not converted to a drawable shape)"
             );
             assert!(
-                !eng.object_image_png(n_line).is_empty(),
+                !eng.object_image_png(n_line, 1.0).is_empty(),
                 "line did not render"
             );
         });

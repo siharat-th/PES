@@ -27,7 +27,7 @@ bool import_svg(rust::Slice<const uint8_t> data);
 
 int32_t get_object_count();
 ObjectSnapshot get_object_snapshot(int32_t index);
-rust::Vec<uint8_t> get_object_image_png(int32_t index);
+rust::Vec<uint8_t> get_object_image_png(int32_t index, float scale);
 
 void translate_object(int32_t index, float dx, float dy);
 void scale_object(int32_t index, float sx, float sy);

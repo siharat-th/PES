@@ -7,7 +7,7 @@ import type { DocumentSnapshot } from "./types";
 export interface PesModule {
   pes_call(cmd: string, argsJson: string): string;
   load_input(kind: string, bytes: Uint8Array): string;
-  object_png(index: number): Uint8Array;
+  object_png(index: number, scale: number): Uint8Array;
   export_bytes(format: string): Uint8Array;
   set_resource_path(path: string): void;
   load_ppef_font(name: string, bytes: Uint8Array): string;
@@ -117,7 +117,7 @@ export async function webInvoke<T = unknown>(
   const a = args ?? {};
   switch (cmd) {
     case "get_object_image": {
-      const u8 = m.object_png((a.index as number) ?? 0);
+      const u8 = m.object_png((a.index as number) ?? 0, (a.scale as number) ?? 1);
       // object_png returns a fresh JS Uint8Array sized exactly to the PNG.
       return u8.buffer as unknown as T;
     }

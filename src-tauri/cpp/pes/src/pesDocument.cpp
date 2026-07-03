@@ -3341,7 +3341,7 @@ bool loadAssets(bool reload) {
 }
 
 // TODO: should be change name to makePesImageSnapshot makeStitchImageSnapshot
-sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, float maxh, float x, float y, bool dpi300) const {
+sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, float maxh, float x, float y, bool dpi300, float renderScale) const {
     // bicubic blurry (useful for small piece)
     static constexpr SkCubicResampler bspline = {1, 0};
     // bicubic like photoshop
@@ -3380,8 +3380,11 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
             y = bound.y;
         }
 
-        // up scale & up resolution for best quality image
-        const float scale = dpi300 ? 1.1811f : 1.0f;
+        // up scale & up resolution for best quality image. renderScale lets a
+        // caller request a zoom-proportional raster (crisp deep zoom); it also
+        // drives the thread-texture LOD selection below (20x4 -> 80x16), so a
+        // higher scale gets both more pixels and a finer silk swatch.
+        const float scale = (dpi300 ? 1.1811f : 1.0f) * renderScale;
 
         const SkSamplingOptions sampling = bicubicSampling;
 
@@ -3690,8 +3693,8 @@ sk_sp<SkImage> pesDocument::makeImageSnapshot(pesData& pesdata, float maxw, floa
     return nullptr;
 }
 
-sk_sp<SkImage> pesDocument::makePesImageSnapshot(int idx) const {
-    return makeImageSnapshot(*__pesDataList[idx]);
+sk_sp<SkImage> pesDocument::makePesImageSnapshot(int idx, float renderScale) const {
+    return makeImageSnapshot(*__pesDataList[idx], -1.0f, -1.0f, -1000000.0f, -1000000.0f, false, renderScale);
 }
 
 //sk_sp<SkImage> pesDocument::makePesImageSnapshot2(int idx) {

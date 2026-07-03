@@ -147,8 +147,8 @@ ObjectSnapshot get_object_snapshot(int32_t index) {
     return s;
 }
 
-rust::Vec<uint8_t> get_object_image_png(int32_t index) {
-    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index);
+rust::Vec<uint8_t> get_object_image_png(int32_t index, float scale) {
+    sk_sp<SkImage> img = pescore::makeObjectPreviewImage(doc(), index, scale);
     if (!img)
         return {};
     return toRustVec(SkImageToPngData(img));

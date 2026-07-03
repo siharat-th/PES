@@ -43,11 +43,14 @@ export async function getDocument(): Promise<DocumentSnapshot> {
   return invoke("get_document");
 }
 
-/** PNG bytes of one object's rendered stitches. */
+/** PNG bytes of one object's rendered stitches, rasterized at `scale`× the
+ *  1px-per-0.1mm base (a power-of-two LOD bucket driven by canvas zoom, so a
+ *  zoomed-in object stays crisp). Defaults to 1 for thumbnails. */
 export async function getObjectImageBitmap(
   index: number,
+  scale = 1,
 ): Promise<ImageBitmap | null> {
-  const buf = await invoke<ArrayBuffer>("get_object_image", { index });
+  const buf = await invoke<ArrayBuffer>("get_object_image", { index, scale });
   if (!buf || buf.byteLength === 0) return null;
   return createImageBitmap(new Blob([buf], { type: "image/png" }));
 }
