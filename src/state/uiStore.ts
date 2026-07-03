@@ -19,6 +19,11 @@ interface UiState {
   /** whether the right-hand panel (Properties/Layers) is shown */
   rightPanelOpen: boolean;
   libraryOpen: LibraryKind | null;
+  /** Auto Punch (image → embroidery) dialog */
+  punchOpen: boolean;
+  /** image handed to the Auto Punch dialog from outside (drag-drop) —
+   *  consumed (cleared) by AutoPunchPanel on pickup */
+  punchSeed: { name: string; bytes: Uint8Array } | null;
   /** show jump/trim travel moves as dashed lines (design view).
    *  Stitch View always shows them regardless of this flag. */
   showJumpStitches: boolean;
@@ -29,6 +34,8 @@ interface UiState {
   setSimSpeed: (s: number) => void;
   toggleRightPanel: () => void;
   setLibraryOpen: (k: LibraryKind | null) => void;
+  setPunchOpen: (open: boolean) => void;
+  setPunchSeed: (seed: { name: string; bytes: Uint8Array } | null) => void;
   toggleShowJumpStitches: () => void;
 }
 
@@ -39,11 +46,15 @@ export const useUiStore = create<UiState>((set) => ({
   simSpeed: 2,
   rightPanelOpen: true,
   libraryOpen: null,
+  punchOpen: false,
+  punchSeed: null,
   showJumpStitches: false,
 
   toggleRightPanel: () =>
     set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   setLibraryOpen: (libraryOpen) => set({ libraryOpen }),
+  setPunchOpen: (punchOpen) => set({ punchOpen }),
+  setPunchSeed: (punchSeed) => set({ punchSeed }),
   toggleShowJumpStitches: () =>
     set((s) => ({ showJumpStitches: !s.showJumpStitches })),
 

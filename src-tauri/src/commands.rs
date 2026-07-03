@@ -499,6 +499,50 @@ pub async fn add_satin_objects(objects_json: String) -> Result<DocumentSnapshot,
     .await?
 }
 
+/// Append Auto Punch per-color fill objects (tracer output). Group creation
+/// happens inside the engine call so the whole punch is ONE undo step —
+/// same reasoning as duplicate_objects.
+#[tauri::command]
+pub async fn add_punch_objects(spec_json: String) -> Result<DuplicateResult, String> {
+    run_blocking(move || {
+        let mut new_indices: Vec<i32> = Vec::new();
+        let mut group_id = -1;
+        let ok = history::run_undoable_checked(|eng| {
+            let res = eng.add_punch_objects(&spec_json);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&res) {
+                new_indices = v["new_indices"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|x| x.as_i64()).map(|n| n as i32).collect())
+                    .unwrap_or_default();
+                group_id = v["group_id"].as_i64().unwrap_or(-1) as i32;
+            }
+            !new_indices.is_empty()
+        });
+        if !ok {
+            return Err("สร้างลายปักไม่สำเร็จ".to_string());
+        }
+        Ok(DuplicateResult {
+            snapshot: document_snapshot(),
+            new_indices,
+            group_id,
+        })
+    })
+    .await?
+}
+
+/// Import a PNG (base64) as a locked Background object at the back (undoable).
+#[tauri::command]
+pub async fn import_background(png_base64: String) -> Result<DocumentSnapshot, String> {
+    run_blocking(move || {
+        let ok = history::run_undoable_checked(|eng| eng.import_background(&png_base64) >= 0);
+        if !ok {
+            return Err("นำเข้ารูปพื้นหลังไม่สำเร็จ".to_string());
+        }
+        Ok(document_snapshot())
+    })
+    .await?
+}
+
 /// Vector geometry (SVG paths + paint) for crisp Konva rendering of shapes.
 #[tauri::command]
 pub async fn get_object_vector(index: i32) -> Result<String, String> {

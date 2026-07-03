@@ -191,6 +191,8 @@ mod ffi {
         fn simplify_polygons(polygons_json: &str) -> String;
         fn add_satin_objects(objects_json: &str) -> i32;
         fn satin_column_rails(rails_json: &str) -> String;
+        fn add_punch_objects(spec_json: &str) -> String;
+        fn import_background(png_base64: &str) -> i32;
         fn get_path_nodes(obj_index: i32, path_index: i32) -> Vec<PathNode>;
         fn move_path_node(
             obj_index: i32,
@@ -498,6 +500,17 @@ impl Engine<'_> {
     /// Returns the number of objects added.
     pub fn add_satin_objects(&self, objects_json: &str) -> i32 {
         ffi::add_satin_objects(objects_json)
+    }
+
+    /// Append Auto Punch per-color fill objects (tracer output JSON).
+    /// Returns {"new_indices":[...],"group_id":n} as JSON.
+    pub fn add_punch_objects(&self, spec_json: &str) -> String {
+        ffi::add_punch_objects(spec_json)
+    }
+
+    /// Import a base64 PNG as a locked Background object. Returns index or -1.
+    pub fn import_background(&self, png_base64: &str) -> i32 {
+        ffi::import_background(png_base64)
     }
 
     pub fn path_nodes(&self, obj_index: i32, path_index: i32) -> Vec<PathNode> {
@@ -831,6 +844,141 @@ mod tests {
             let s = eng.object_snapshot(eng.object_count() - 1);
             assert_eq!(s.object_type, "Satin Column");
             assert!(s.has_stitches, "drawn satin column should have stitches");
+        });
+    }
+
+    #[test]
+    fn add_punch_objects_builds_grouped_fills() {
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+
+            // 200x100 px trace, 100mm wide -> scale 5 (px -> 0.1mm units).
+            // Two color layers sharing ONE coordinate frame.
+            let spec = r##"{"imageSize":[200,100],"outputWidthMm":100,
+                "groupName":"Auto Punch","fillDensity":2.5,"sewDirection":0,
+                "objects":[
+                  {"paths":["M0,0 L200,0 L200,100 L0,100 Z"],
+                   "rgb":"#cc2020","colorIndex":-1,"fillType":1},
+                  {"paths":["M50,25 L150,25 L150,75 L50,75 Z"],
+                   "rgb":"#2020cc","colorIndex":7,"fillType":1}]}"##;
+            let res: serde_json::Value =
+                serde_json::from_str(&eng.add_punch_objects(spec)).unwrap();
+            let idxs: Vec<i32> = res["new_indices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_i64().unwrap() as i32)
+                .collect();
+            let gid = res["group_id"].as_i64().unwrap() as i32;
+            assert_eq!(idxs.len(), 2, "expected 2 punch objects");
+            assert!(gid > 0, "group not created");
+
+            // both are stitched SVG objects in the group
+            for &i in &idxs {
+                let s = eng.object_snapshot(i);
+                assert_eq!(s.object_type, "SVG");
+                assert!(s.has_stitches, "fillType 1 must produce stitches");
+                assert_eq!(s.group_id, gid, "object not in the punch group");
+            }
+            // shared frame: full-image rect = 1000x500 units centered at origin
+            // (snapshot bbox follows the STITCHES, whose first/last fill rows
+            // sit ~half a row spacing inside the path — allow 5 units = 0.5mm)
+            let a = eng.object_snapshot(idxs[0]);
+            assert!(
+                (a.width - 1000.0).abs() < 5.0 && (a.height - 500.0).abs() < 5.0,
+                "bad scale: {}x{}",
+                a.width,
+                a.height
+            );
+            assert!(
+                (a.x + 500.0).abs() < 5.0 && (a.y + 250.0).abs() < 5.0,
+                "not centered: {} {}",
+                a.x,
+                a.y
+            );
+            // inner rect keeps its relative placement (same transform, no
+            // per-object recentering)
+            let b = eng.object_snapshot(idxs[1]);
+            assert!(
+                (b.width - 500.0).abs() < 5.0 && (b.x + 250.0).abs() < 5.0,
+                "layers misaligned: x={} w={}",
+                b.x,
+                b.width
+            );
+
+            // colorIndex -1 -> engine picked the nearest Brother thread
+            let p: serde_json::Value =
+                serde_json::from_str(&eng.parameter_json(idxs[0])).unwrap();
+            let ci = p["fillColorIndex"].as_i64().unwrap();
+            assert!((1..=65).contains(&ci), "bad auto colorIndex {ci}");
+
+            // a hole subpath must not be filled: donut carries visibly fewer
+            // stitches than the same rect without the hole
+            let full = r##"{"imageSize":[100,100],"outputWidthMm":50,"objects":[
+                {"paths":["M0,0 L100,0 L100,100 L0,100 Z"],"rgb":"#111111","colorIndex":1,"fillType":1}]}"##;
+            let donut = r##"{"imageSize":[100,100],"outputWidthMm":50,"objects":[
+                {"paths":["M0,0 L100,0 L100,100 L0,100 Z M25,25 L75,25 L75,75 L25,75 Z"],
+                 "rgb":"#111111","colorIndex":1,"fillType":1}]}"##;
+            serde_json::from_str::<serde_json::Value>(&eng.add_punch_objects(full)).unwrap();
+            let full_pts = eng.stitch_data(eng.object_count() - 1).total_points;
+            serde_json::from_str::<serde_json::Value>(&eng.add_punch_objects(donut)).unwrap();
+            let donut_pts = eng.stitch_data(eng.object_count() - 1).total_points;
+            assert!(
+                donut_pts * 10 < full_pts * 9,
+                "hole not honored: donut {donut_pts} vs full {full_pts} stitches"
+            );
+
+            // fillType 0 -> plain vector, no stitches, no group
+            let vec_only = r##"{"imageSize":[100,100],"outputWidthMm":50,"objects":[
+                {"paths":["M0,0 L100,0 L100,100 Z"],"rgb":"#20cc20","colorIndex":-1,"fillType":0}]}"##;
+            let res: serde_json::Value =
+                serde_json::from_str(&eng.add_punch_objects(vec_only)).unwrap();
+            assert_eq!(res["group_id"].as_i64().unwrap(), -1);
+            let s = eng.object_snapshot(eng.object_count() - 1);
+            assert_eq!(s.object_type, "SVG");
+            assert!(!s.has_stitches, "fillType 0 must not stitch");
+
+            // garbage in -> no objects, no crash
+            let res: serde_json::Value =
+                serde_json::from_str(&eng.add_punch_objects("not json")).unwrap();
+            assert!(res["new_indices"].as_array().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn import_background_roundtrips_ppes() {
+        // 1x1 transparent PNG
+        const PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        with_engine(|eng| {
+            setup_resources(eng);
+            eng.new_document();
+
+            // rejects non-PNG payloads cleanly
+            assert_eq!(eng.import_background("!!!"), -1, "bad base64 accepted");
+            assert_eq!(eng.import_background("aGVsbG8="), -1, "non-PNG accepted");
+
+            // an existing object gets pushed forward; background lands at 0
+            let tri = r##"{"imageSize":[100,100],"outputWidthMm":50,"objects":[
+                {"paths":["M0,0 L100,0 L100,100 Z"],"rgb":"#cc2020","colorIndex":1,"fillType":1}]}"##;
+            serde_json::from_str::<serde_json::Value>(&eng.add_punch_objects(tri)).unwrap();
+            assert_eq!(eng.import_background(PNG_B64), 0, "import_background failed");
+            assert_eq!(eng.object_count(), 2);
+            let bg = eng.object_snapshot(0);
+            assert_eq!(bg.object_type, "Background", "background not back-most");
+            assert_eq!(eng.object_snapshot(1).object_type, "SVG");
+
+            // PNG bytes ride inside the PPES container (save/undo snapshots)
+            let ppes = eng.export_as("PPES");
+            assert!(!ppes.is_empty(), "PPES export empty");
+            eng.new_document();
+            assert!(eng.load_ppes(&ppes), "reload PPES failed");
+            assert_eq!(eng.object_count(), 2, "objects lost across save/load");
+            assert_eq!(
+                eng.object_snapshot(0).object_type,
+                "Background",
+                "background lost across save/load"
+            );
         });
     }
 

@@ -21,6 +21,7 @@ import {
   Triangle,
   Minus,
   LibraryBig,
+  ImagePlus,
 } from "lucide-react";
 import { SewingMachineIcon } from "../icons";
 import { SHAPE } from "../engine/EngineClient";
@@ -136,6 +137,7 @@ export default function RadialToolMenu() {
   const viewMode = useUiStore((s) => s.viewMode);
   const setViewMode = useUiStore((s) => s.setViewMode);
   const setLibraryOpen = useUiStore((s) => s.setLibraryOpen);
+  const setPunchOpen = useUiStore((s) => s.setPunchOpen);
 
   const hasSelection = selectedIndex >= 0;
 
@@ -212,6 +214,12 @@ export default function RadialToolMenu() {
           onClick: run(() =>
             setViewMode(viewMode === "satinDraw" ? "design" : "satinDraw"),
           ),
+        },
+        {
+          id: "autoPunch",
+          label: "แกะลายจากรูป (Auto Punch)",
+          icon: <ImagePlus size={18} />,
+          onClick: run(() => setPunchOpen(true)),
         },
       ],
     },

@@ -86,6 +86,12 @@ int32_t add_satin_objects(rust::Str objects_json);
 // Manual satin-column draw: smooth clicked knots into rail d-strings + center.
 rust::String satin_column_rails(rust::Str rails_json);
 
+// Auto Punch seams (JSON in/out — see pes_punch_core.hpp)
+// Returns {"new_indices":[...],"group_id":n} (empty new_indices on failure).
+rust::String add_punch_objects(rust::Str spec_json);
+// PNG (base64) -> locked Background object at index 0. Returns index or -1.
+int32_t import_background(rust::Str png_base64);
+
 // Path-node editing (PathEdit mode). Nodes are reported/moved in WORLD
 // coordinates; the object's display rotation is folded in here.
 rust::Vec<PathNode> get_path_nodes(int32_t obj_index, int32_t path_index);

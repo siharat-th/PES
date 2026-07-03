@@ -33,6 +33,7 @@
 #include "pes_edit_core.hpp" // shared PathEdit/StitchEdit/path-op logic
 #include "pes_text_core.hpp" // shared PPEF/TTF text creation/rebuild
 #include "pes_satin_core.hpp" // shared Smart Satin engine seams
+#include "pes_punch_core.hpp" // shared Auto Punch engine seams
 
 #include "pesBuffer.hpp"
 #include "pesColor.hpp"
@@ -413,6 +414,32 @@ json dispatch(const std::string& cmd, const json& a) {
         } catch (...) {
             return std::string("{}");
         }
+    }
+    if (cmd == "add_punch_objects") {
+        json spec;
+        try {
+            spec = json::parse(sarg("specJson"));
+        } catch (...) {
+            return errorJson("add_punch_objects: invalid JSON");
+        }
+        pescore::PunchResult pr;
+        bool ok = undoableChecked([&]() -> bool {
+            pr = pescore::addPunchObjects(doc(), spec);
+            return !pr.newIndices.empty();
+        });
+        if (!ok) return errorJson("สร้างลายปักไม่สำเร็จ");
+        return json{{"snapshot", documentSnapshotJson()},
+                    {"new_indices", pr.newIndices},
+                    {"group_id", pr.groupId}};
+    }
+    if (cmd == "import_background") {
+        auto bytes = pescore::base64Decode(sarg("pngBase64"));
+        if (bytes.empty()) return errorJson("import_background: bad data");
+        bool ok = undoableChecked([&]() -> bool {
+            return pescore::importBackground(doc(), bytes) >= 0;
+        });
+        if (!ok) return errorJson("นำเข้ารูปพื้นหลังไม่สำเร็จ");
+        return documentSnapshotJson();
     }
     if (cmd == "duplicate_objects") {
         std::vector<int> src;

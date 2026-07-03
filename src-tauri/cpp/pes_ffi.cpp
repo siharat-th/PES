@@ -12,6 +12,7 @@
 #include "pes_edit_core.hpp" // shared PathEdit/StitchEdit/path-op logic (ditto)
 #include "pes_text_core.hpp" // shared PPEF/TTF text creation/rebuild (ditto)
 #include "pes_satin_core.hpp" // shared Smart Satin engine seams (ditto)
+#include "pes_punch_core.hpp" // shared Auto Punch engine seams (ditto)
 
 #include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
@@ -593,6 +594,26 @@ rust::String satin_column_rails(rust::Str rails_json) {
     } catch (...) {
         return rust::String("{}");
     }
+}
+
+// ---- Auto Punch seams (pes_punch_core.hpp) ---------------------------------
+
+rust::String add_punch_objects(rust::Str spec_json) {
+    nlohmann::json out{{"new_indices", nlohmann::json::array()}, {"group_id", -1}};
+    try {
+        auto spec = nlohmann::json::parse(std::string(spec_json));
+        auto res = pescore::addPunchObjects(doc(), spec);
+        out["new_indices"] = res.newIndices;
+        out["group_id"] = res.groupId;
+    } catch (...) {
+    }
+    return rust::String(out.dump());
+}
+
+int32_t import_background(rust::Str png_base64) {
+    auto bytes = pescore::base64Decode(std::string(png_base64));
+    if (bytes.empty()) return -1;
+    return pescore::importBackground(doc(), bytes);
 }
 
 bool set_param_str(int32_t obj_index, rust::Str key, rust::Str value) {

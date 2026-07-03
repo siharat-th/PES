@@ -248,6 +248,7 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/pes_edit_core.hpp");
     println!("cargo:rerun-if-changed=cpp/pes_text_core.hpp");
     println!("cargo:rerun-if-changed=cpp/pes_satin_core.hpp");
+    println!("cargo:rerun-if-changed=cpp/pes_punch_core.hpp");
     println!("cargo:rerun-if-changed=cpp/pes/src");
     println!("cargo:rerun-if-changed=cpp/pes/include");
     println!("cargo:rerun-if-changed=cpp/skia-ext");

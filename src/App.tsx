@@ -25,6 +25,7 @@ import Sidebar from "./panels/Sidebar";
 import SimulatorBar from "./panels/SimulatorBar";
 import RadialToolMenu from "./panels/RadialToolMenu";
 import LibraryPanel from "./panels/LibraryPanel";
+import AutoPunchPanel from "./panels/AutoPunchPanel";
 import { useDocumentStore } from "./state/documentStore";
 import { useViewportStore } from "./state/viewportStore";
 import { useUiStore } from "./state/uiStore";
@@ -41,6 +42,9 @@ const EXPORT_FORMATS = [
 ];
 
 const OPENABLE = ["ppes", "ppes5", "pes", "svg"];
+// raster images route to Auto Punch (แกะลายจากรูป) instead of open_file
+const PUNCHABLE = ["png", "jpg", "jpeg"];
+const fileExt = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 
 export default function App() {
   const { doc, busy, error, selectedIndex, clearError } = useDocumentStore();
@@ -62,6 +66,14 @@ export default function App() {
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const showJumpStitches = useUiStore((s) => s.showJumpStitches);
   const toggleShowJumpStitches = useUiStore((s) => s.toggleShowJumpStitches);
+  const setPunchOpen = useUiStore((s) => s.setPunchOpen);
+  const setPunchSeed = useUiStore((s) => s.setPunchSeed);
+
+  // hand a dropped raster image to the Auto Punch dialog
+  const punchImage = (name: string, bytes: Uint8Array) => {
+    setPunchSeed({ name, bytes });
+    setPunchOpen(true);
+  };
   const [dragOver, setDragOver] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -70,6 +82,17 @@ export default function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Auto-exit contextual modes when their context is gone — e.g. opening a new
+  // file clears the selection / empties the document. Otherwise the mode sticks
+  // and its toolbar toggle is disabled (selection-gated), trapping the user.
+  // Also covers deleting the object you were editing, etc.
+  useEffect(() => {
+    const needsSelection = viewMode === "pathEdit" || viewMode === "stitchEdit";
+    const emptyDoc = !doc || doc.objects.length === 0;
+    if (needsSelection && selectedIndex < 0) setViewMode("design");
+    else if (viewMode === "stitch" && emptyDoc) setViewMode("design");
+  }, [viewMode, selectedIndex, doc, setViewMode]);
 
   // close the Export menu on outside click or Escape
   useEffect(() => {
@@ -102,9 +125,19 @@ export default function App() {
       } else if (event.payload.type === "drop") {
         setDragOver(false);
         const path = event.payload.paths.find((p) =>
-          OPENABLE.includes(p.split(".").pop()?.toLowerCase() ?? ""),
+          OPENABLE.includes(fileExt(p)),
+        );
+        const imgPath = event.payload.paths.find((p) =>
+          PUNCHABLE.includes(fileExt(p)),
         );
         if (path) void openFile(path);
+        else if (imgPath)
+          void import("@tauri-apps/plugin-fs").then(async ({ readFile }) =>
+            punchImage(
+              imgPath.split(/[\\/]/).pop() ?? "image",
+              await readFile(imgPath),
+            ),
+          );
       }
     });
     return () => {
@@ -143,6 +176,17 @@ export default function App() {
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     await openBytes(file.name, bytes);
+  };
+
+  // web HTML5 drop (Tauri intercepts drops before the DOM sees them)
+  const handleWebDrop = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    const ext = fileExt(file.name);
+    if (!OPENABLE.includes(ext) && !PUNCHABLE.includes(ext)) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (PUNCHABLE.includes(ext)) punchImage(file.name, bytes);
+    else await openBytes(file.name, bytes);
   };
 
   const handleExport = async (format: string, ext: string) => {
@@ -223,7 +267,23 @@ export default function App() {
   const selectedObj = doc?.objects.find((o) => o.index === selectedIndex);
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-100 text-sm text-neutral-800">
+    <div
+      className="flex h-screen flex-col bg-neutral-100 text-sm text-neutral-800"
+      onDragOver={(e) => {
+        if (engine.IS_TAURI) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => {
+        if (!engine.IS_TAURI) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (engine.IS_TAURI) return;
+        e.preventDefault();
+        setDragOver(false);
+        void handleWebDrop(e.dataTransfer.files);
+      }}
+    >
       {/* web file-open picker (desktop uses the native Tauri dialog) */}
       <input
         ref={fileInputRef}
@@ -458,6 +518,7 @@ export default function App() {
       </div>
 
       <LibraryPanel />
+      <AutoPunchPanel />
     </div>
   );
 }

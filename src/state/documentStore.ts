@@ -58,6 +58,13 @@ interface DocumentState {
   addSatinColumn: (rails: engine.SatinKnot[][]) => Promise<boolean>;
   /** Smart Satin: convert a TTF/SVG object's outlines into satin columns */
   convertToSatin: (index: number) => Promise<void>;
+  /** Auto Punch: optionally add the source photo as a Background object, then
+   *  the traced per-color fill objects as one group. Selects the new objects.
+   *  Returns true on success. */
+  autoPunch: (
+    spec: engine.PunchSpec,
+    backgroundPngBase64?: string,
+  ) => Promise<boolean>;
   setVisible: (index: number, visible: boolean) => Promise<void>;
   setLocked: (index: number, locked: boolean) => Promise<void>;
   reorder: (index: number, dir: number) => Promise<void>;
@@ -362,6 +369,30 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         }));
       } catch (e) {
         set({ error: String(e) });
+      } finally {
+        set({ busy: false });
+      }
+    },
+
+    autoPunch: async (spec, backgroundPngBase64) => {
+      set({ busy: true, error: null });
+      try {
+        // two undo steps when the background is on (both commands stay
+        // independently useful; documented in the plan)
+        if (backgroundPngBase64) await engine.importBackground(backgroundPngBase64);
+        const res = await engine.addPunchObjects(spec);
+        set((s) => ({
+          doc: res.snapshot,
+          imageVersion: s.imageVersion + 1,
+          selectedIndices: res.new_indices,
+          selectedIndex: res.new_indices.length
+            ? res.new_indices[res.new_indices.length - 1]
+            : -1,
+        }));
+        return true;
+      } catch (e) {
+        set({ error: String(e) });
+        return false;
       } finally {
         set({ busy: false });
       }

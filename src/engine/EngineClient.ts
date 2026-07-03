@@ -209,6 +209,41 @@ export interface DuplicateResult {
   group_id: number;
 }
 
+/** Auto Punch: one fill object per traced thread color. */
+export interface PunchObjectSpec {
+  /** absolute trace-px d-strings; holes are subpaths of the same string */
+  paths: string[];
+  rgb: string;
+  /** Brother thread index 1..65; -1 lets the engine pick the nearest */
+  colorIndex: number;
+  /** fillTypeIndex: 1 = NORMAL (stitches), 0 = NONE (plain vector) */
+  fillType: number;
+}
+
+export interface PunchSpec {
+  /** trace working resolution in px (the tracer result's width/height) */
+  imageSize: [number, number];
+  /** physical width in mm; height follows the image aspect */
+  outputWidthMm: number;
+  /** present → the new objects are placed into a fresh group of this name */
+  groupName?: string;
+  fillDensity?: number;
+  sewDirection?: number;
+  objects: PunchObjectSpec[];
+}
+
+/** Append Auto Punch per-color fill objects (one undo step incl. the group). */
+export async function addPunchObjects(spec: PunchSpec): Promise<DuplicateResult> {
+  return invoke("add_punch_objects", { specJson: JSON.stringify(spec) });
+}
+
+/** Import a PNG as a locked Background object at the back (1 px = 0.1 mm). */
+export async function importBackground(
+  pngBase64: string,
+): Promise<DocumentSnapshot> {
+  return invoke("import_background", { pngBase64 });
+}
+
 /** Duplicate several objects in one undo step. Pass `groupName` to place the
  *  copies into a fresh group (duplicating a whole group). */
 export async function duplicateObjects(

@@ -1,0 +1,21 @@
+[package]
+name = "pes-tracer"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "PES Auto Punch tracer: color quantization + raster-to-vector tracing (wasm)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+visioncortex = "0.8"
+# default features pull in rayon threads; wasm needs single-threaded
+quantette = { version = "0.6", default-features = false, features = ["kmeans", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true

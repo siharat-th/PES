@@ -76,7 +76,7 @@ cxx "$SRC/pes_resources.cpp" "$OBJ/pes_resources.o"
 WEB_OBJ="$OBJ/pes_web.o"
 if [ ! -f "$WEB_OBJ" ] || [ "$SRC/wasm/pes_web.cpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_ffi_core.hpp" -nt "$WEB_OBJ" ] \
    || [ "$SRC/pes_edit_core.hpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_text_core.hpp" -nt "$WEB_OBJ" ] \
-   || [ "$SRC/pes_satin_core.hpp" -nt "$WEB_OBJ" ]; then
+   || [ "$SRC/pes_satin_core.hpp" -nt "$WEB_OBJ" ] || [ "$SRC/pes_punch_core.hpp" -nt "$WEB_OBJ" ]; then
   echo "  cc pes_web.cpp"; em++ $CXXFLAGS --bind -c "$SRC/wasm/pes_web.cpp" -o "$WEB_OBJ"
 fi
 
