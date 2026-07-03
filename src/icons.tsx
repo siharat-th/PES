@@ -15,3 +15,25 @@ export function SewingMachineIcon({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
+
+/** Jump stitch: two needle points joined by a dashed travel line — mirrors how
+ *  jumps are drawn on the canvas (dashed) so the toggle reads at a glance. */
+export function JumpStitchIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="5.5" y1="18.5" x2="18.5" y2="5.5" strokeDasharray="3 3.2" />
+      <circle cx="4.5" cy="19.5" r="2" fill="currentColor" stroke="none" />
+      <circle cx="19.5" cy="4.5" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

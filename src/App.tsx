@@ -19,7 +19,7 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import pesLogo from "./assets/pes-logo.png";
-import { SewingMachineIcon } from "./icons";
+import { SewingMachineIcon, JumpStitchIcon } from "./icons";
 import EmbroideryStage from "./canvas/EmbroideryStage";
 import Sidebar from "./panels/Sidebar";
 import SimulatorBar from "./panels/SimulatorBar";
@@ -60,6 +60,8 @@ export default function App() {
   const setViewMode = useUiStore((s) => s.setViewMode);
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
+  const showJumpStitches = useUiStore((s) => s.showJumpStitches);
+  const toggleShowJumpStitches = useUiStore((s) => s.toggleShowJumpStitches);
   const [dragOver, setDragOver] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -348,6 +350,19 @@ export default function App() {
           onClick={() =>
             setViewMode(viewMode === "stitch" ? "design" : "stitch")
           }
+        />
+        <ToolButton
+          label={
+            viewMode === "stitch"
+              ? "Jump Stitches (always shown in Stitch View)"
+              : showJumpStitches
+                ? "ซ่อน Jump Stitches"
+                : "แสดง Jump Stitches (เส้นประ)"
+          }
+          icon={<JumpStitchIcon size={17} />}
+          active={showJumpStitches || viewMode === "stitch"}
+          disabled={viewMode === "stitch"}
+          onClick={toggleShowJumpStitches}
         />
 
         {busy && (

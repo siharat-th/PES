@@ -5,6 +5,7 @@ import GridLayer from "./GridLayer";
 import RulerLayer from "./RulerLayer";
 import ObjectsLayer from "./ObjectsLayer";
 import StitchLayer from "./StitchLayer";
+import JumpStitchLayer from "./JumpStitchLayer";
 import PathEditLayer from "./PathEditLayer";
 import StitchEditLayer from "./StitchEditLayer";
 import SatinDrawLayer from "./SatinDrawLayer";
@@ -32,6 +33,10 @@ export default function EmbroideryStage() {
   const doc = useDocumentStore((s) => s.doc);
   const select = useDocumentStore((s) => s.select);
   const viewMode = useUiStore((s) => s.viewMode);
+  const showJumpStitches = useUiStore((s) => s.showJumpStitches);
+  // Stitch View always shows jumps; design view follows the toggle.
+  const showJumps =
+    viewMode === "stitch" || (viewMode === "design" && showJumpStitches);
   const hoopWMm = doc?.hoop_width_mm ?? 100;
   const hoopHMm = doc?.hoop_height_mm ?? 100;
 
@@ -127,9 +132,9 @@ export default function EmbroideryStage() {
     <div
       ref={containerRef}
       className={`h-full w-full overflow-hidden transition-colors ${
-        viewMode === "design" || viewMode === "satinDraw"
-          ? "bg-neutral-300"
-          : "bg-neutral-800"
+        viewMode === "pathEdit" || viewMode === "stitchEdit"
+          ? "bg-neutral-800"
+          : "bg-neutral-300"
       }`}
     >
       <ViewContext.Provider
@@ -152,6 +157,7 @@ export default function EmbroideryStage() {
           <GridLayer hoopWMm={hoopWMm} hoopHMm={hoopHMm} mode={viewMode} />
           {viewMode === "design" && <ObjectsLayer />}
           {viewMode === "stitch" && <StitchLayer />}
+          {showJumps && <JumpStitchLayer />}
           {viewMode === "pathEdit" && (
             <>
               <ObjectsLayer readOnly />

@@ -19,6 +19,9 @@ interface UiState {
   /** whether the right-hand panel (Properties/Layers) is shown */
   rightPanelOpen: boolean;
   libraryOpen: LibraryKind | null;
+  /** show jump/trim travel moves as dashed lines (design view).
+   *  Stitch View always shows them regardless of this flag. */
+  showJumpStitches: boolean;
 
   setViewMode: (m: ViewMode) => void;
   setSimIndex: (i: number) => void;
@@ -26,6 +29,7 @@ interface UiState {
   setSimSpeed: (s: number) => void;
   toggleRightPanel: () => void;
   setLibraryOpen: (k: LibraryKind | null) => void;
+  toggleShowJumpStitches: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -35,10 +39,13 @@ export const useUiStore = create<UiState>((set) => ({
   simSpeed: 2,
   rightPanelOpen: true,
   libraryOpen: null,
+  showJumpStitches: false,
 
   toggleRightPanel: () =>
     set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   setLibraryOpen: (libraryOpen) => set({ libraryOpen }),
+  toggleShowJumpStitches: () =>
+    set((s) => ({ showJumpStitches: !s.showJumpStitches })),
 
   setViewMode: (viewMode) =>
     set(

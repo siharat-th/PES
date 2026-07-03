@@ -24,6 +24,10 @@ import {
 
 const FONT_SIZES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30];
 
+// Path operations (inset/outset/unite/separate/erase) are temporarily hidden —
+// the feature still has too many edge-case bugs. Set to true to re-enable.
+const SHOW_PATH_OPS: boolean = false;
+
 // shapeIndex mapping per pes5.html updatePPEFText (0..15 contiguous)
 const TEXT_EFFECTS = [
   { value: 0, label: "Plain Text" },
@@ -117,7 +121,10 @@ export default function PropertiesPanel() {
     ]).then(([p, b, paths]) => {
       if (cancelled) return;
       setParam(p);
-      setBlocks(b);
+      // Only show color blocks that actually carry stitches. A satin column
+      // sizes fillBlocks to paths.size() (one per rail) but puts every stitch
+      // into block 0, so the rest are empty 0-stitch noise — hide them.
+      setBlocks(b.filter((blk) => blk.stitch_count > 0));
       setTextDraft(p.text);
       setPathCount(paths.length);
       setActivePath((i) => Math.min(i, Math.max(paths.length - 1, 0)));
@@ -456,8 +463,10 @@ export default function PropertiesPanel() {
         </Group>
       )}
 
-      {/* Path operations (Prop_PathOpsHandler) — geometry editing per path */}
-      {obj.object_type !== "Stitch" && pathCount > 0 && (
+      {/* Path operations (Prop_PathOpsHandler) — geometry editing per path.
+          Temporarily hidden: inset/outset/unite/separate/erase still have too
+          many edge-case bugs. Flip SHOW_PATH_OPS back on to re-enable. */}
+      {SHOW_PATH_OPS && obj.object_type !== "Stitch" && pathCount > 0 && (
         <Group title="Path operations" defaultOpen={false}>
           <Row label={`Path (${pathCount})`}>
             <SelectField

@@ -5,8 +5,8 @@ import { useView, layerTransform } from "./viewContext";
 
 /** Hoop, 5 mm grid and center axes — port of drawNodes (PesHelper.js:838-860).
  *  Coordinates are engine units (0.1 mm) with the origin at hoop center.
- *  In stitch view the hoop becomes a dark fabric so threads + penetration
- *  dots read with real contrast. */
+ *  Node/stitch edit modes use a dark fabric so handles pop; design, satin draw
+ *  and stitch view keep the light design canvas. */
 export default function GridLayer({
   hoopWMm,
   hoopHMm,
@@ -21,9 +21,9 @@ export default function GridLayer({
   const hh = hoopHMm * UNITS_PER_MM;
   const step = 50; // 5 mm
 
-  // stitch + node-edit modes use the dark fabric so threads/handles pop;
-  // satinDraw draws over the artwork, so it keeps the light design canvas
-  const dark = mode !== "design" && mode !== "satinDraw";
+  // only the node/stitch edit modes use the dark fabric so handles pop;
+  // design, satinDraw and stitch view keep the light design canvas
+  const dark = mode === "pathEdit" || mode === "stitchEdit";
   const c = dark
     ? {
         fabric: "#34373d",

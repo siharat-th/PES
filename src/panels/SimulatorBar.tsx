@@ -76,18 +76,21 @@ export default function SimulatorBar() {
   useEffect(() => {
     if (!simPlaying || total === 0) return;
     let last = performance.now();
+    // Precise fractional playhead kept in the closure — simIndex is floored
+    // for display, so re-reading it each frame would drop the fraction and
+    // stall any speed below 1 stitch/frame (0.25×, 0.5×). Accumulate here.
+    const cur = useUiStore.getState().simIndex;
+    let pos = cur < 0 ? 0 : cur;
     const tick = (now: number) => {
       const dt = (now - last) / 16.67; // frames at 60fps
       last = now;
-      const cur = useUiStore.getState().simIndex;
-      const from = cur < 0 ? 0 : cur;
-      const next = from + simSpeed * dt;
-      if (next >= total) {
+      pos += simSpeed * dt;
+      if (pos >= total) {
         setSimIndex(total);
         setSimPlaying(false);
         return;
       }
-      setSimIndex(Math.floor(next));
+      setSimIndex(Math.floor(pos));
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);

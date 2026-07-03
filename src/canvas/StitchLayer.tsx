@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Layer, Shape, Circle } from "react-konva";
+import { Layer, Shape, Circle, Line } from "react-konva";
 import Konva from "konva";
 import { useDocumentStore } from "../state/documentStore";
 import { useUiStore } from "../state/uiStore";
@@ -43,8 +43,6 @@ export default function StitchLayer() {
       ? data.totalPoints
       : simIndex
     : 0;
-  // penetration dots get expensive past this; lines still draw
-  const showDots = limit <= 60000;
 
   const needle =
     data && simIndex >= 1 && simIndex <= data.totalPoints
@@ -79,31 +77,33 @@ export default function StitchLayer() {
             ctx.strokeStyle = seg.hex;
             ctx.stroke();
           }
-          // needle penetration dots
-          if (showDots) {
-            const r = px * 1.3; // ~1.3px on screen
-            ctx.fillStyle = "rgba(255,255,255,0.85)";
-            for (const seg of segments) {
-              if (seg.start >= limit) break;
-              const vis = Math.min(seg.count, limit - seg.start);
-              for (let i = 0; i < vis; i++) {
-                ctx.beginPath();
-                ctx.arc(
-                  coords[(seg.start + i) * 2],
-                  coords[(seg.start + i) * 2 + 1],
-                  r,
-                  0,
-                  Math.PI * 2,
-                );
-                ctx.fill();
-              }
-            }
-          }
         }}
       />
       {needle && (
-        <Circle x={needle[0]} y={needle[1]} radius={6 / view.zoom} fill="#ff2d2d" />
+        <NeedleCrosshair x={needle[0]} y={needle[1]} zoom={view.zoom} />
       )}
     </Layer>
+  );
+}
+
+/** Current-stitch marker: a red crosshair with a centre gap so the exact needle
+ *  point stays visible (unlike a solid dot, which hides the stitch under it).
+ *  Sizes are fixed screen pixels (÷zoom → world units). */
+function NeedleCrosshair({ x, y, zoom }: { x: number; y: number; zoom: number }) {
+  const arm = 11 / zoom; // half-length of each crosshair line
+  const gap = 3.5 / zoom; // clear centre so the point shows through
+  const sw = 1.5 / zoom; // ~1.5 px stroke
+  const red = "#ff2d2d";
+  const line = (points: number[], key: string) => (
+    <Line key={key} points={points} stroke={red} strokeWidth={sw} lineCap="round" />
+  );
+  return (
+    <>
+      {line([x - arm, y, x - gap, y], "l")}
+      {line([x + gap, y, x + arm, y], "r")}
+      {line([x, y - arm, x, y - gap], "t")}
+      {line([x, y + gap, x, y + arm], "b")}
+      <Circle x={x} y={y} radius={1.3 / zoom} fill={red} />
+    </>
   );
 }
