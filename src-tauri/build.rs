@@ -112,12 +112,10 @@ fn main() {
         ("SK_ALLOW_STATIC_GLOBAL_INITIALIZERS", Some("1")),
         ("SK_GANESH", None),
         ("SK_GL", None),
-        ("SK_ASSUME_GL", Some("1")),
         ("SK_SUPPORT_PDF", None),
         ("SK_XML", None),
         ("SK_ENABLE_PRECOMPILE", None),
         ("SK_HAS_WUFFS_LIBRARY", None),
-        ("SK_USE_PERFETTO", None),
         ("SK_USE_PARTITION_ALLOC", None),
         ("SK_ENABLE_AVX512_OPTS", None),
         ("GPU_TEST_UTILS", Some("1")),
@@ -135,19 +133,21 @@ fn main() {
         ("SK_CODEC_ENCODES_JPEG", None),
         ("SK_CODEC_DECODES_WEBP", None),
         ("SK_CODEC_ENCODES_WEBP", None),
-        ("SK_CODEC_DECODES_RAW", None),
     ] {
         bridge.define(k, v);
     }
     if is_windows {
-        // Windows libskia is GL-only (no Metal) and carries these extra defines
-        // (`gn desc //:skia defines`). It is built with clang-cl + the static
-        // CRT (/MT), so the facade/engine must use the same: MSVC cl.exe would
-        // silently drop [[clang::trivial_abi]] and change the sk_sp calling
-        // convention, and a dynamic CRT would clash with libskia's libcmt.
+        // Windows libskia is GL-only (no Metal) and uses the platform DirectWrite/
+        // GDI font managers (`gn desc //:skia defines`). It is built with clang-cl
+        // + the static CRT (/MT), so the facade/engine must match: a dynamic CRT
+        // would clash with libskia's libcmt, and clang-cl keeps ABI identical to
+        // the clang-cl-built libs. NOTE vs macOS: no SK_ASSUME_GL / SK_USE_PERFETTO
+        // / SK_CODEC_DECODES_RAW here — the Windows GN build omits them, and
+        // SK_USE_PERFETTO would pull perfetto headers the facade can't see.
         for (k, v) in [
-            ("GR_TEST_UTILS", Some("1")),
-            ("SKVM_JIT_WHEN_POSSIBLE", None),
+            ("SK_TYPEFACE_FACTORY_DIRECTWRITE", None),
+            ("SK_FONTMGR_DIRECTWRITE_AVAILABLE", None),
+            ("SK_FONTMGR_GDI_AVAILABLE", None),
             ("_CRT_SECURE_NO_WARNINGS", None),
             ("WIN32_LEAN_AND_MEAN", None),
             ("NOMINMAX", None),
@@ -159,10 +159,18 @@ fn main() {
             .static_crt(true)
             .flag("/std:c++17")
             .flag("/bigobj")
+            // clang-cl defaults to exceptions off; the facade + vendored SQLiteCpp
+            // use try/catch, so enable them (Skia itself is built without and never
+            // throws, which is fine — /EHsc doesn't change std:: type layout).
+            .flag("/EHsc")
             .flag_if_supported("-Wno-unknown-attributes");
     } else {
-        // macOS/Linux: Metal backend + Apple availability + CoreText fontmgr.
+        // macOS/Linux: Metal backend + Apple availability + CoreText fontmgr, plus
+        // the GL-assume / perfetto / raw-codec defines the non-Windows GN build carries.
         for (k, v) in [
+            ("SK_ASSUME_GL", Some("1")),
+            ("SK_USE_PERFETTO", None),
+            ("SK_CODEC_DECODES_RAW", None),
             ("SK_METAL", None),
             ("SK_ENABLE_API_AVAILABLE", None),
             ("SK_TYPEFACE_FACTORY_CORETEXT", None),
